@@ -238,8 +238,27 @@ def test_the_report_names_classes_with_no_data(tmp_path):
     """77 classes assembled from public data is violently long-tailed, and
     finding that out after a training run has wasted the run."""
     report = build_dataset([sample_at(tmp_path, "s1", "a")], tmp_path / "out", TAX).report(TAX)
-    assert "have NO training data" in report
+    assert "have NO TRAINING data" in report
     assert "open_manhole" in report
+
+
+def test_held_out_boxes_never_count_as_training_coverage(tmp_path):
+    """IDD supplies 32,280 auto_rickshaw boxes the model will never see. A
+    combined total would show a well-covered class that has no training data."""
+    held = [sample_at(tmp_path, "idd", f"g{i}", label="auto_rickshaw") for i in range(40)]
+    for s_ in held:
+        s_.source, s_.role = "idd", "eval_only"
+    stats = build_dataset(
+        [sample_at(tmp_path, "w", f"f{i}") for i in range(60)] + held,
+        tmp_path / "out", TAX,
+    )
+    assert stats.per_class_eval["auto_rickshaw"] == 40
+    assert stats.per_class_train["auto_rickshaw"] == 0
+    report = stats.report(TAX)
+    assert "eval only" in report
+    # and it must still be listed as untrainable
+    section = report.split("have NO TRAINING data:")[1]
+    assert "auto_rickshaw" in section
 
 
 def test_the_report_flags_thin_classes(tmp_path):

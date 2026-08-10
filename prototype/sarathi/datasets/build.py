@@ -45,6 +45,12 @@ log = get_logger(__name__)
 
 @dataclass
 class BuildStats:
+    #: Counted separately, because mixing them is actively misleading. IDD
+    #: contributes 32,280 auto_rickshaw boxes and the model will never see one
+    #: of them - reporting a combined total would show a well-covered class
+    #: that in fact has no training data at all.
+    per_class_train: Counter[str] = field(default_factory=Counter)
+    per_class_eval: Counter[str] = field(default_factory=Counter)
     per_class: Counter[str] = field(default_factory=Counter)
     per_source: Counter[str] = field(default_factory=Counter)
     train_images: int = 0
@@ -53,45 +59,58 @@ class BuildStats:
     skipped_unknown_class: Counter[str] = field(default_factory=Counter)
 
     def report(self, taxonomy: Taxonomy) -> str:
-        total = sum(self.per_class.values())
+        train_total = sum(self.per_class_train.values())
+        eval_total = sum(self.per_class_eval.values())
         lines = [
             f"images   {self.train_images} train  /  {self.val_images} val"
             + (f"  (of which {self.eval_only_images} held out by licence/design)"
                if self.eval_only_images else ""),
-            f"boxes    {total}",
+            f"boxes    {train_total} trainable  /  {eval_total} held out",
             "",
             "per source:",
         ]
         for source, count in self.per_source.most_common():
             lines.append(f"    {source:<26} {count:>8}")
 
-        lines += ["", "per class (taxonomy order, zero-count classes shown):"]
+        lines += [
+            "",
+            "per class - TRAIN counts drive the model; HELD-OUT counts do not:",
+            f"    {'class':<20} {'train':>8} {'held out':>9}",
+        ]
         empty: list[str] = []
         for cls in taxonomy:
-            count = self.per_class.get(cls.name, 0)
-            if count == 0:
+            train = self.per_class_train.get(cls.name, 0)
+            held = self.per_class_eval.get(cls.name, 0)
+            if train == 0 and held == 0:
                 empty.append(cls.name)
                 continue
-            share = 100 * count / max(1, total)
-            bar = "#" * max(1, round(share / 2))
-            lines.append(f"    {cls.name:<20} {count:>7}  {share:5.1f}%  {bar}")
+            share = 100 * train / max(1, train_total)
+            bar = "#" * max(0, round(share / 2))
+            flag = "  <- eval only" if train == 0 and held > 0 else ""
+            lines.append(
+                f"    {cls.name:<20} {train:>8} {held:>9}  {share:5.1f}% {bar}{flag}"
+            )
 
-        if empty:
+        untrainable = [
+            c.name for c in taxonomy if self.per_class_train.get(c.name, 0) == 0
+        ]
+        if untrainable:
             lines += [
                 "",
-                f"{len(empty)} classes have NO training data:",
-                "    " + ", ".join(empty),
+                f"{len(untrainable)} classes have NO TRAINING data:",
+                "    " + ", ".join(untrainable),
                 "",
-                "A class with no data is a class the model cannot detect. These must",
-                "either get data, get dropped from the shipped label set, or be",
-                "reported as known-absent in the evaluation - never left to look",
-                "supported because they appear in the taxonomy.",
+                "A class with no training data is a class the model cannot detect,",
+                "whether or not it appears in a held-out set. These must either get",
+                "data, get dropped from the shipped label set, or be reported as",
+                "known-absent in the evaluation - never left to look supported",
+                "because they appear in the taxonomy.",
             ]
 
         thin = [
-            (c.name, self.per_class[c.name])
+            (c.name, self.per_class_train[c.name])
             for c in taxonomy
-            if 0 < self.per_class.get(c.name, 0) < 50
+            if 0 < self.per_class_train.get(c.name, 0) < 50
         ]
         if thin:
             lines += ["", "classes with fewer than 50 instances (expect poor recall):"]
@@ -213,6 +232,10 @@ def build_dataset(
                     f"{index[box.label]} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}"
                 )
                 stats.per_class[box.label] += 1
+                if sample.role == "eval_only":
+                    stats.per_class_eval[box.label] += 1
+                else:
+                    stats.per_class_train[box.label] += 1
             if not lines:
                 continue
 
