@@ -88,6 +88,18 @@ dependencies {
     // the build.
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.15.0")
 
+    // ML Kit text recognition, UNBUNDLED. These artifacts ship no model in the
+    // APK - recognition happens in Google Play Services, the same place the
+    // TextToSpeech this app already depends on lives. See the licence
+    // reasoning at the top of ocr/TextReader.kt; OCR is optional and the app
+    // works without it.
+    //
+    // Devanagari is a separate model, not an option on the Latin one. A Hindi
+    // sign read by the Latin recogniser returns nothing, which is
+    // indistinguishable from "no text here".
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.1")
+    implementation("com.google.android.gms:play-services-mlkit-text-recognition-devanagari:16.0.1")
+
     // YAML, so the phone reads the same manifests and phrase tables the
     // prototype does rather than a hand-maintained Kotlin copy.
     implementation("org.yaml:snakeyaml:2.3")

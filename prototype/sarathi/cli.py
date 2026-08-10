@@ -487,6 +487,59 @@ DEMO_WALK = [
 ]
 
 
+def cmd_read(args: argparse.Namespace) -> int:
+    """Read text from an image or a live source, the way the phone does.
+
+    Exists so the OCR path can be exercised without a device: same manifest,
+    same adapter interface, and the same ordering rule that decides what a
+    blind user actually hears. On Android the recogniser is ML Kit rather than
+    RapidOCR - see ocr/TextReader.kt for why - so this checks the ordering and
+    the phrasing, not the recogniser itself.
+    """
+    import cv2
+
+    from .models import ModelRegistry
+
+    source = args.source
+    if source.isdigit() or Path(source).suffix.lower() in {".mp4", ".mov", ".avi"}:
+        feed = create_source(source)
+        try:
+            feed.open()
+            frame = feed.read()
+            if frame is None:
+                log.error("no frame from %s", source)
+                return 2
+            image = frame.image
+        finally:
+            feed.close()
+    else:
+        image = cv2.imread(source)
+        if image is None:
+            log.error("cannot read image: %s", source)
+            return 2
+
+    registry = ModelRegistry()
+    try:
+        reader = registry.load(args.model)
+    except Exception as exc:  # noqa: BLE001 - report, do not traceback at a user
+        log.error("%s", exc)
+        return 2
+
+    started = time.perf_counter()
+    lines = reader.read(image)
+    elapsed = (time.perf_counter() - started) * 1000.0
+
+    if not lines:
+        print("no text found")
+        return 0
+    print(f"{len(lines)} lines in {elapsed:.0f} ms")
+    for text, confidence in lines:
+        print(f"  {confidence:.2f}  {text}")
+    print()
+    print("spoken:", ". ".join(text for text, _ in lines))
+    return 0
+
+
 def cmd_speak(args: argparse.Namespace) -> int:
     """Run a scripted walk through tracking, saliency, phrasing and speech."""
     import time as _time
@@ -653,6 +706,11 @@ def build_parser() -> argparse.ArgumentParser:
                       help="assumed cost of one detector pass until one is benchmarked")
     gate.add_argument("--thermal", action="store_true", help="read real thermal pressure")
     gate.set_defaults(func=cmd_gate)
+
+    read = sub.add_parser("read", help="read text from an image or a camera frame")
+    read.add_argument("source", help="image path, video path, or camera index")
+    read.add_argument("--model", default="rapidocr-mobile", help="OCR manifest id")
+    read.set_defaults(func=cmd_read)
 
     speak = sub.add_parser("speak", help="run a scripted walk through the guidance chain")
     speak.add_argument("--lang", default="en", choices=["en", "hi"])

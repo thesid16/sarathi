@@ -22,6 +22,7 @@ import `in`.sarathi.app.models.SharedData
 import `in`.sarathi.app.perception.CameraModel
 import `in`.sarathi.app.perception.Geometry
 import `in`.sarathi.app.perception.LiteRtDetector
+import `in`.sarathi.app.ocr.TextReader
 import `in`.sarathi.app.vlm.SceneDescriber
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
@@ -46,6 +47,7 @@ class GuidanceService : LifecycleService() {
 
     private var detector: LiteRtDetector? = null
     private var describer: SceneDescriber? = null
+    private var reader: TextReader? = null
 
     /**
      * A pending "what is in front of me?" press.
@@ -57,6 +59,7 @@ class GuidanceService : LifecycleService() {
      * device. Read first, it is served by the next camera frame.
      */
     private val describeRequested = AtomicBoolean(false)
+    private val readRequested = AtomicBoolean(false)
     private var cameraModel: CameraModel? = null
     private var priors = emptyMap<String, `in`.sarathi.app.models.SizePrior>()
 
@@ -113,6 +116,18 @@ class GuidanceService : LifecycleService() {
         }
         Log.i(TAG, "scene description: " +
             if (describer?.isInstalled() == true) "weights present" else "not installed")
+
+        // The recogniser is script-specific and the language can change, so it
+        // is built here alongside the phrase book rather than lazily.
+        reader = runCatching { TextReader(lang) }.getOrNull()
+        reader?.let { ocr ->
+            // Off the main thread: the first call makes Play Services deliver
+            // the recognition model, which is a network fetch on a device that
+            // has never used it.
+            thread(name = "sarathi-ocr-selftest", isDaemon = true) {
+                Log.i(TAG, ocr.selfTest(this))
+            }
+        }
         val surveyMarker = java.io.File(filesDir, "survey")
         if (surveyMarker.exists()) {
             surveyMarker.delete()
@@ -131,8 +146,30 @@ class GuidanceService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        if (intent?.action == ACTION_DESCRIBE) requestDescription()
+        when (intent?.action) {
+            ACTION_DESCRIBE -> requestDescription()
+            ACTION_READ -> requestReading()
+        }
         return START_STICKY
+    }
+
+    private fun requestReading() {
+        if (reader == null) {
+            voice.say(phrases.systemPhrase("no_text"), urgent = false)
+            return
+        }
+        voice.say(phrases.systemPhrase("reading"), urgent = false)
+        readRequested.set(true)
+    }
+
+    private fun serveReading(bitmap: android.graphics.Bitmap) {
+        val ocr = reader ?: return
+        thread(name = "sarathi-ocr", isDaemon = true) {
+            val text = ocr.read(bitmap)
+            bitmap.recycle()
+            voice.say(text ?: phrases.systemPhrase("no_text"), urgent = false)
+            Log.i(TAG, "ocr ${ocr.lastReadMs}ms")
+        }
     }
 
     private fun requestDescription() {
@@ -158,6 +195,9 @@ class GuidanceService : LifecycleService() {
         val now = System.currentTimeMillis()
         if (describeRequested.compareAndSet(true, false)) {
             frame.toBitmap()?.let { serveDescription(it) }
+        }
+        if (readRequested.compareAndSet(true, false)) {
+            frame.toBitmap()?.let { serveReading(it) }
         }
         describer?.trimIfIdle(now)
         val age = now - frame.timestampMs
@@ -237,6 +277,7 @@ class GuidanceService : LifecycleService() {
 
     override fun onDestroy() {
         describer?.close()
+        reader?.close()
         camera.stop()
         detector?.close()
         voice.say(phrases.systemPhrase("stopping"), urgent = false)
@@ -277,8 +318,11 @@ class GuidanceService : LifecycleService() {
         private const val DETECTOR_MANIFEST = "yolo11n-coco-320.yaml"
         private const val VLM_MANIFEST = "gemma-4-e2b-vlm.yaml"
 
-        /** Volume-up, forwarded from the activity. */
+        /** Volume-up, short press. Forwarded from the activity. */
         const val ACTION_DESCRIBE = "in.sarathi.app.DESCRIBE"
+
+        /** Volume-up, held. */
+        const val ACTION_READ = "in.sarathi.app.READ"
         private const val REPORT_INTERVAL_MS = 5_000L
     }
 }

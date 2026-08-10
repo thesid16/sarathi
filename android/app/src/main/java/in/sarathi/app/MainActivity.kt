@@ -103,29 +103,57 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Hardware buttons, so the app is usable with the screen off and the phone
-     * in a pocket. Volume-down starts and stops; volume-up is reserved for the
-     * on-demand OCR and scene-description triggers.
-     */
-    /**
-     * Ask the running service what is in front of the user.
+     * Forward an on-demand request to the running service.
      *
      * Deliberately silent when guidance is not running: pressing volume-up on a
      * stopped app should not spin up a camera and a two-gigabyte model. Start
      * it first, with the button that starts it.
      */
-    private fun describe() {
+    private fun send(action: String) {
         if (!running) return
-        startService(
-            Intent(this, GuidanceService::class.java).setAction(GuidanceService.ACTION_DESCRIBE)
-        )
+        startService(Intent(this, GuidanceService::class.java).setAction(action))
     }
+
+    /**
+     * Hardware buttons, so the app is usable with the screen off and the phone
+     * in a pocket.
+     *
+     *   volume-down          start / stop guidance
+     *   volume-up, tapped    describe the scene
+     *   volume-up, held      read any text
+     *
+     * Both on-demand features share one button because there are only two
+     * buttons, and tap-versus-hold is a distinction that can be made by feel
+     * without looking. The tap fires on key-*up*, not key-down: committing on
+     * the way down would make every long press trigger a description first.
+     */
+    private var volumeUpHandled = false
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         return when (keyCode) {
             KeyEvent.KEYCODE_VOLUME_DOWN -> { toggle(); true }
-            KeyEvent.KEYCODE_VOLUME_UP -> { describe(); true }
+            KeyEvent.KEYCODE_VOLUME_UP -> {
+                if (event != null && event.repeatCount == 0) {
+                    volumeUpHandled = false
+                    event.startTracking()   // required for onKeyLongPress to fire
+                }
+                true
+            }
             else -> super.onKeyDown(keyCode, event)
         }
+    }
+
+    override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode != KeyEvent.KEYCODE_VOLUME_UP) return super.onKeyLongPress(keyCode, event)
+        volumeUpHandled = true
+        send(GuidanceService.ACTION_READ)
+        return true
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode != KeyEvent.KEYCODE_VOLUME_UP) return super.onKeyUp(keyCode, event)
+        if (!volumeUpHandled) send(GuidanceService.ACTION_DESCRIBE)
+        volumeUpHandled = false
+        return true
     }
 }

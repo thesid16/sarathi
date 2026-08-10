@@ -20,6 +20,13 @@ vendored_weights: true
 
 runtime:
   prototype: rapidocr
+  # `mlkit` names a runtime that resolves its own model out of Google Play
+  # Services - hence vendored_weights above, and hence no files block. The
+  # licence reasoning for depending on it at all is in docs/06-ocr.md and at
+  # the top of android/.../ocr/TextReader.kt; the short version is that the
+  # unbundled artifacts ship no proprietary model inside the APK, text reading
+  # is optional, and this manifest stays here as the fully open alternative a
+  # fork can adopt by writing one adapter.
   android: mlkit
 
 
