@@ -47,10 +47,37 @@ and URL. That file is generated from the dataset configs, so it cannot drift.
 
 | Dataset | Licence | Size | Why it matters |
 |---|---|---|---|
-| **[WOTR](https://github.com/kxzr/WOTR)** — Walk On The Road | **MIT** ✅ | ~190,000 objects, 20 classes | **The single most valuable find.** Pedestrian/sidewalk viewpoint, not a car windscreen. Classes: `tactile_paving`, `warning_column`, `roadblock`, `reflective_cone`, `pole`, `ashcan`, `tree`, `crosswalk`, `red_light`, `green_light`, `sign`, `pedestrian`, `bicycle`, `motorcycle`, `car`, `bus`, `truck`, `tricycle`, `dog`, `fire_hydrant`. VOC format. Chinese urban scenes — right viewpoint, wrong country, which is exactly the trade §4 addresses. |
+| **[WOTR](https://github.com/kxzr/WOTR)** — Walk On The Road | **MIT** ✅ | **13,928 images · 189,994 objects** (verified) | **The single most valuable source.** Pedestrian/sidewalk viewpoint, not a car windscreen. Downloaded, unpacked and counted — see the table below. Chinese urban scenes: right viewpoint, wrong country, which is exactly the trade §4 addresses. Mapping in [`training/datasets/wotr.yaml`](../training/datasets/wotr.yaml). |
 | **[Open-Manholes](https://universe.roboflow.com/aibased-solution-for-realtime-detection-of-road-anomalies-d6eay/open-manholes)** | **CC BY 4.0** ✅ | 677 images | Distinguishes `Open-Manhole` from `Manhole` from `pothole`. The single most dangerous class in the taxonomy, and it exists. |
 | **[Pothole and manhole detection](https://universe.roboflow.com/project-auzdn/pothole-and-manhole-detection)** | **CC BY 4.0** ✅ | ~2,500 images | Volume for the same classes. |
 | **[RDD2022](https://github.com/sekilab/RoadDamageDetector)** | **CC BY-SA 4.0** ✅ | 47,420 images, 6 countries **incl. India** | Road surface damage: `D40` pothole plus crack classes. Real Indian road surfaces, and the licence is confirmed in the repo. |
+
+#### WOTR, counted
+
+Measured on the lab server, not quoted from the paper. 13.6 objects per image.
+
+| Class | Instances | → taxonomy | | Class | Instances | → taxonomy |
+|---|---:|---|---|---|---:|---|
+| person | 35,245 | person | | roadblock | 4,402 | barrier |
+| pole | 31,144 | pole | | reflective_cone | 4,125 | traffic_cone |
+| car | 27,583 | car | | truck | 3,537 | truck |
+| tree | 22,515 | tree | | sign | 3,360 | sign_board |
+| motorcycle | 12,162 | motorcycle | | ashcan | 2,857 | bin |
+| warning_column | 10,431 | warning_column | | blind_road | 2,381 | **tactile_paving** |
+| crosswalk | 8,558 | crosswalk | | bus | 1,787 | bus |
+| bicycle | 5,995 | bicycle | | tricycle | 1,580 | cycle_rickshaw* |
+| green_light | 4,965 | traffic_light_green | | fire_hydrant | 1,384 | fire_hydrant |
+| red_light | 4,961 | traffic_light_red | | dog | 1,022 | dog |
+
+\* `tricycle` is the Chinese three-wheeled cargo vehicle — not an auto-rickshaw,
+but close enough to a cycle-rickshaw at pedestrian range that the mapping is
+worth making. Recorded as a deliberate approximation so the evaluation can
+check whether it transfers rather than assuming it does.
+
+One thing worth noting from the resolution histogram: the second most common
+size is **1020×1360 — portrait**. Handheld phone footage often is, and square
+letterboxing throws away most of a portrait frame. Worth measuring whether a
+portrait-aware crop beats the standard recipe before assuming it doesn't.
 
 ### Tier B — broad object coverage
 
@@ -64,8 +91,8 @@ and URL. That file is generated from the dataset configs, so it cannot drift.
 
 | Dataset | Status | Value if usable |
 |---|---|---|
-| **[IDD](https://idd.insaan.iiit.ac.in/)** — India Driving Dataset | ⚠️ Licence shown only after account login; not determinable remotely. Assume research-only until confirmed. | 34 classes explicitly including `autorickshaw`, `animal`, and unstructured road edges. IIIT Hyderabad + Intel + UCSD. The highest-value single item for Indian content — worth the account. |
-| **[SS4Blind](https://github.com/elnino9ykl/SS4Blind)** | ⚠️ No licence stated in repo | Curb segmentation (100 img), crosswalk (191 img), traversability, terrain awareness — all from wearable-camera viewpoint. Small but precisely on-target. Needs an email to the authors. |
+| **[IDD](https://idd.insaan.iiit.ac.in/)** — India Driving Dataset | ⚠️ Licence shown only after login; still unread | 34 classes including `autorickshaw` and `animal`. IDD Detection is 22.8 GB. **The signed download link is session-gated** — it resolves to HTML unless the request carries a login cookie, so fetching it needs a cookie-bearing request rather than the URL alone. Highest-value single item for Indian content. |
+| **[SS4Blind](https://github.com/elnino9ykl/SS4Blind)** | ⚠️ No licence stated in repo | **Downloaded: 3,342 images.** Gardens Point 1,200 · RGB-D-SS 1,200 · crosswalk 382 · terrain 360 · curb 200. All wearable-camera viewpoint. Note these are **segmentation masks, not boxes** — directly useful to the ground-surface and depth tier, and needing mask→box conversion to feed the detector. Small but precisely on-target. Licence still needs an email to the authors. |
 | **[StairNet](https://ieee-dataport.org/documents/stairnet-computer-vision-dataset-stair-recognition)** | ⚠️ Requires IEEE DataPort subscription | ~515,000 egocentric images of stairs from a chest-mounted camera, indoor and outdoor. Enormous and exactly the right viewpoint. **Check whether SNU has an IEEE subscription** — if so this is free. |
 | **SENSATION-DS** ([arXiv 2607.21137](https://arxiv.org/abs/2607.21137)) | ⚠️ Very recent; release terms unclear | 2,752 image-mask pairs, chest-height pedestrian view, 9-class navigation taxonomy. |
 | **Mapillary Vistas** | ❌ Research-only | Has `curb`, `manhole`, `pothole` classes. Excluded — but see §4, the *imagery* is a different licence from the *annotation dataset*. |
@@ -96,7 +123,11 @@ flowchart LR
 
 - **Mapillary imagery is CC BY-SA 4.0 with free API access.** It is worldwide,
   crowd-sourced, and includes substantial Indian coverage. Much of it is
-  captured from phones and dashcams at or near pedestrian height.
+  captured from phones and dashcams at or near pedestrian height. *Access
+  verified.* One practical constraint found in testing: the Graph API refuses
+  a bounding box the size of central Delhi with "please reduce the amount of
+  data you're asking for", so the puller has to walk a grid of small tiles and
+  page through each rather than issuing one wide query.
 - **Open-vocabulary detectors label by text prompt.** Grounding DINO and OWLv2
   (both Apache-2.0) will find "auto rickshaw", "open manhole", "parked scooter
   on footpath" without ever having been fine-tuned on them. They are far too
