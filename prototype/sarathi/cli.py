@@ -169,6 +169,23 @@ def cmd_licenses(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_taxonomy(args: argparse.Namespace) -> int:
+    """Report what the detector knows and, more usefully, what it cannot."""
+    from .taxonomy import Taxonomy
+
+    taxonomy = Taxonomy.load(args.file)
+
+    if args.labels:
+        out = Path(args.labels).expanduser()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("\n".join(taxonomy.names(args.lang)) + "\n")
+        print(f"wrote {len(taxonomy)} labels ({args.lang}) -> {out}")
+        return 0
+
+    print(taxonomy.coverage_report())
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sarathi", description=__doc__.split("\n")[0])
     parser.add_argument("--config", "-c", help="YAML config file (or a name under configs/)")
@@ -193,6 +210,12 @@ def build_parser() -> argparse.ArgumentParser:
     models = sub.add_parser("models", help="list known models and whether weights are present")
     models.add_argument("--task", choices=["detection", "depth", "ocr", "vlm"])
     models.set_defaults(func=cmd_models)
+
+    tax = sub.add_parser("taxonomy", help="report class coverage and blind spots")
+    tax.add_argument("--file", help="taxonomy YAML (defaults to training/taxonomy/)")
+    tax.add_argument("--labels", metavar="PATH", help="write a label file instead of a report")
+    tax.add_argument("--lang", default="en", choices=["en", "hi"])
+    tax.set_defaults(func=cmd_taxonomy)
 
     lic = sub.add_parser("licenses", help="audit the licence of every model")
     lic.add_argument(

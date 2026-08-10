@@ -1,0 +1,138 @@
+# Sarathi taxonomy - the single source of truth for what the detector knows.
+#
+# Built the honest way round: from what public datasets can actually supply,
+# not from a wish list. Every class records which datasets cover it and how
+# well, so the holes are visible before training rather than discovered in the
+# results.
+#
+# coverage:
+#   good     - a labelled dataset covers this class at a useful viewpoint
+#   partial  - covered, but from the wrong viewpoint (driving datasets) or in
+#              small numbers; needs augmentation or auto-labelling
+#   gap      - no confirmed source yet. These are named, not hidden, and each
+#              gets a measured recall in the evaluation report.
+#   pending  - a source exists but its licence or access is unresolved
+#
+# hazard: drives saliency ranking, not just phrasing. See sarathi/types.py.
+#   critical - can injure: drop-offs, moving vehicles, head-height obstacles
+#   high     - will be walked into
+#   medium   - matters for orientation
+#   low      - context only; spoken on request, never unprompted
+#
+# hi: spoken Hindi label. DRAFT - needs review by a native speaker before it
+# ships. Entries marked `hi_review: true` are ones I am least confident about,
+# usually because the concept has no settled everyday Hindi term.
+
+version: 0.1.0
+name: sarathi77
+
+sources:
+  wotr:        {licence: MIT,          viewpoint: pedestrian, status: downloaded}
+  ss4blind:    {licence: unstated,     viewpoint: wearable,   status: downloaded}
+  coco:        {licence: CC-BY-4.0,    viewpoint: mixed,      status: planned}
+  openimages:  {licence: CC-BY-4.0,    viewpoint: mixed,      status: planned}
+  lvis:        {licence: CC-BY-4.0,    viewpoint: mixed,      status: planned}
+  openmanhole: {licence: CC-BY-4.0,    viewpoint: road,       status: planned}
+  rdd2022:     {licence: CC-BY-SA-4.0, viewpoint: road,       status: planned}
+  stairnet:    {licence: unresolved,   viewpoint: chest-cam,  status: blocked-on-ieee-login}
+  idd:         {licence: unresolved,   viewpoint: driving,    status: blocked-on-login}
+  mapillary:   {licence: CC-BY-SA-4.0, viewpoint: street,     status: auto-label-pipeline}
+
+classes:
+
+  # -- Ground hazards ------------------------------------------------------
+  # The category that justifies the product. These are what a white cane finds
+  # late and a phone can find early.
+  - {id: 0,  name: stairs_down,     hi: "नीचे जाती सीढ़ियाँ",   group: ground,   hazard: critical, sources: [stairnet, openimages], coverage: pending}
+  - {id: 1,  name: stairs_up,       hi: "ऊपर जाती सीढ़ियाँ",    group: ground,   hazard: high,     sources: [stairnet, openimages], coverage: pending}
+  - {id: 2,  name: step_down,       hi: "उतार",                group: ground,   hazard: critical, sources: [ss4blind],             coverage: gap}
+  - {id: 3,  name: step_up,         hi: "चढ़ाव",                group: ground,   hazard: high,     sources: [ss4blind],             coverage: gap}
+  - {id: 4,  name: kerb,            hi: "फुटपाथ का किनारा",     group: ground,   hazard: critical, sources: [ss4blind, mapillary],  coverage: partial}
+  - {id: 5,  name: ramp,            hi: "रैंप",                 group: ground,   hazard: medium,   sources: [openimages],           coverage: partial}
+  - {id: 6,  name: open_manhole,    hi: "खुला मैनहोल",          group: ground,   hazard: critical, sources: [openmanhole],          coverage: good}
+  - {id: 7,  name: manhole_cover,   hi: "मैनहोल का ढक्कन",      group: ground,   hazard: low,      sources: [openmanhole, rdd2022], coverage: good}
+  - {id: 8,  name: pothole,         hi: "गड्ढा",                group: ground,   hazard: high,     sources: [openmanhole, rdd2022], coverage: good}
+  - {id: 9,  name: drain_grate,     hi: "नाली की जाली",         group: ground,   hazard: medium,   sources: [mapillary],            coverage: gap}
+  - {id: 10, name: puddle,          hi: "पानी",                 group: ground,   hazard: medium,   sources: [mapillary],            coverage: gap}
+  - {id: 11, name: tactile_paving,  hi: "स्पर्श पट्टी",          group: ground,   hazard: low,      sources: [wotr],                 coverage: good, hi_review: true}
+
+  # -- Standing obstacles --------------------------------------------------
+  # Things at shin, torso or head height that will be walked into.
+  - {id: 12, name: pole,            hi: "खंभा",                 group: obstacle, hazard: high,     sources: [wotr, mapillary],      coverage: good}
+  - {id: 13, name: bollard,         hi: "छोटा खंभा",            group: obstacle, hazard: high,     sources: [wotr, mapillary],      coverage: partial}
+  - {id: 14, name: sign_post,       hi: "साइन का खंभा",         group: obstacle, hazard: critical, sources: [wotr, openimages],     coverage: good, note: "head-height board on a thin post - the classic cane-misses hazard"}
+  - {id: 15, name: tree,            hi: "पेड़",                 group: obstacle, hazard: high,     sources: [wotr, openimages],     coverage: good}
+  - {id: 16, name: barrier,         hi: "अवरोध",                group: obstacle, hazard: high,     sources: [wotr],                 coverage: good}
+  - {id: 17, name: traffic_cone,    hi: "ट्रैफ़िक कोन",          group: obstacle, hazard: medium,   sources: [wotr],                 coverage: good}
+  - {id: 18, name: warning_column,  hi: "चेतावनी खंभा",         group: obstacle, hazard: medium,   sources: [wotr],                 coverage: good}
+  - {id: 19, name: bin,             hi: "कूड़ेदान",             group: obstacle, hazard: medium,   sources: [wotr, coco],           coverage: good}
+  - {id: 20, name: bench,           hi: "बेंच",                 group: obstacle, hazard: medium,   sources: [coco, openimages],     coverage: good}
+  - {id: 21, name: planter,         hi: "गमला",                 group: obstacle, hazard: medium,   sources: [coco, lvis],           coverage: good}
+  - {id: 22, name: fire_hydrant,    hi: "फ़ायर हाइड्रेंट",       group: obstacle, hazard: medium,   sources: [wotr, coco],           coverage: good}
+  - {id: 23, name: construction,    hi: "निर्माण कार्य",        group: obstacle, hazard: critical, sources: [mapillary],            coverage: partial}
+  - {id: 24, name: scaffolding,     hi: "मचान",                 group: obstacle, hazard: critical, sources: [openimages],           coverage: partial}
+  - {id: 25, name: parked_bicycle,  hi: "खड़ी साइकिल",          group: obstacle, hazard: high,     sources: [wotr, coco],           coverage: partial, note: "distinct from a moving bicycle - it is footpath clutter, not traffic"}
+  - {id: 26, name: parked_scooter,  hi: "खड़ी स्कूटर",          group: obstacle, hazard: high,     sources: [mapillary, idd],       coverage: partial}
+  - {id: 27, name: overhead_wire,   hi: "लटकता तार",            group: obstacle, hazard: critical, sources: [],                     coverage: gap, note: "thin structures may be unreachable at 320px input - see docs/04-datasets.md"}
+
+  # -- Vehicles ------------------------------------------------------------
+  - {id: 28, name: car,             hi: "कार",                  group: vehicle,  hazard: critical, sources: [wotr, coco, idd],      coverage: good}
+  - {id: 29, name: bus,             hi: "बस",                   group: vehicle,  hazard: critical, sources: [wotr, coco, idd],      coverage: good}
+  - {id: 30, name: truck,           hi: "ट्रक",                 group: vehicle,  hazard: critical, sources: [wotr, coco, idd],      coverage: good}
+  - {id: 31, name: motorcycle,      hi: "मोटरसाइकिल",           group: vehicle,  hazard: critical, sources: [wotr, coco, idd],      coverage: good}
+  - {id: 32, name: bicycle,         hi: "साइकिल",               group: vehicle,  hazard: high,     sources: [wotr, coco],           coverage: good}
+  - {id: 33, name: auto_rickshaw,   hi: "ऑटो",                  group: vehicle,  hazard: critical, sources: [idd, mapillary],       coverage: partial, note: "IDD has the class but from a car windscreen, not a footpath at 2m"}
+  - {id: 34, name: cycle_rickshaw,  hi: "रिक्शा",               group: vehicle,  hazard: high,     sources: [wotr, mapillary],      coverage: partial, note: "WOTR 'tricycle' is structurally close; remap rather than invent a class"}
+  - {id: 35, name: handcart,        hi: "ठेला",                 group: vehicle,  hazard: high,     sources: [mapillary],            coverage: gap}
+
+  # -- People and animals --------------------------------------------------
+  - {id: 36, name: person,          hi: "व्यक्ति",              group: living,   hazard: medium,   sources: [wotr, coco],           coverage: good}
+  - {id: 37, name: child,           hi: "बच्चा",                group: living,   hazard: high,     sources: [openimages],           coverage: partial, note: "worth separating: moves unpredictably and is below cane sweep"}
+  - {id: 38, name: wheelchair_user, hi: "व्हीलचेयर",            group: living,   hazard: medium,   sources: [openimages],           coverage: partial}
+  - {id: 39, name: dog,             hi: "कुत्ता",               group: living,   hazard: high,     sources: [wotr, coco],           coverage: good}
+  - {id: 40, name: cow,             hi: "गाय",                  group: living,   hazard: high,     sources: [coco, idd],            coverage: partial, note: "COCO has cattle in fields, not at 2m on a street"}
+  - {id: 41, name: cat,             hi: "बिल्ली",               group: living,   hazard: low,      sources: [coco],                 coverage: good}
+
+  # -- Crossing and wayfinding ---------------------------------------------
+  - {id: 42, name: crosswalk,       hi: "ज़ेब्रा क्रॉसिंग",      group: wayfind,  hazard: medium,   sources: [wotr, ss4blind],       coverage: good}
+  - {id: 43, name: traffic_light_red,   hi: "लाल बत्ती",        group: wayfind,  hazard: critical, sources: [wotr, coco],           coverage: good}
+  - {id: 44, name: traffic_light_green, hi: "हरी बत्ती",        group: wayfind,  hazard: high,     sources: [wotr, coco],           coverage: good}
+  - {id: 45, name: pedestrian_signal,   hi: "पैदल संकेत",       group: wayfind,  hazard: high,     sources: [wotr],                 coverage: partial}
+  - {id: 46, name: stop_sign,       hi: "रुकने का चिन्ह",       group: wayfind,  hazard: medium,   sources: [coco],                 coverage: good}
+  - {id: 47, name: sign_board,      hi: "साइन बोर्ड",           group: wayfind,  hazard: low,      sources: [wotr, openimages],     coverage: good, note: "detection only cues the user to invoke OCR; reading is Tier 3"}
+
+  # -- Indoor navigation ---------------------------------------------------
+  - {id: 48, name: door,            hi: "दरवाज़ा",              group: indoor,   hazard: medium,   sources: [openimages, lvis],     coverage: good}
+  - {id: 49, name: door_handle,     hi: "दरवाज़े का हैंडल",     group: indoor,   hazard: low,      sources: [lvis],                 coverage: partial}
+  - {id: 50, name: glass_door,      hi: "काँच का दरवाज़ा",      group: indoor,   hazard: critical, sources: [],                     coverage: gap, note: "high consequence, and hard for any RGB detector - flag as a known limitation"}
+  - {id: 51, name: doorway,         hi: "प्रवेश द्वार",         group: indoor,   hazard: medium,   sources: [ss4blind, openimages], coverage: partial}
+  - {id: 52, name: handrail,        hi: "रेलिंग",               group: indoor,   hazard: low,      sources: [openimages],           coverage: partial, note: "low hazard but high value - it is what you reach for on stairs"}
+  - {id: 53, name: lift,            hi: "लिफ़्ट",                group: indoor,   hazard: low,      sources: [openimages],           coverage: partial}
+  - {id: 54, name: escalator,       hi: "एस्केलेटर",            group: indoor,   hazard: critical, sources: [openimages],           coverage: partial}
+  - {id: 55, name: wall,            hi: "दीवार",                group: indoor,   hazard: high,     sources: [],                     coverage: gap, note: "no bounding box makes sense - handled by the depth tier, not the detector"}
+  - {id: 56, name: window,          hi: "खिड़की",               group: indoor,   hazard: low,      sources: [openimages, lvis],     coverage: good}
+  - {id: 57, name: toilet,          hi: "शौचालय",               group: indoor,   hazard: low,      sources: [coco],                 coverage: good}
+  - {id: 58, name: sink,            hi: "बेसिन",                group: indoor,   hazard: low,      sources: [coco],                 coverage: good}
+  - {id: 59, name: tap,             hi: "नल",                   group: indoor,   hazard: low,      sources: [lvis],                 coverage: good}
+  - {id: 60, name: light_switch,    hi: "स्विच",                group: indoor,   hazard: low,      sources: [lvis],                 coverage: partial}
+
+  # -- Furniture -----------------------------------------------------------
+  - {id: 61, name: chair,           hi: "कुर्सी",               group: furniture, hazard: high,    sources: [coco, lvis],           coverage: good}
+  - {id: 62, name: table,           hi: "मेज़",                 group: furniture, hazard: high,    sources: [coco, lvis],           coverage: good}
+  - {id: 63, name: sofa,            hi: "सोफ़ा",                group: furniture, hazard: medium,  sources: [coco],                 coverage: good}
+  - {id: 64, name: bed,             hi: "बिस्तर",               group: furniture, hazard: low,     sources: [coco],                 coverage: good}
+  - {id: 65, name: desk,            hi: "डेस्क",                group: furniture, hazard: high,    sources: [lvis],                 coverage: good}
+  - {id: 66, name: shelf,           hi: "शेल्फ़",               group: furniture, hazard: medium,  sources: [lvis],                 coverage: good}
+  - {id: 67, name: counter,         hi: "काउंटर",               group: furniture, hazard: medium,  sources: [lvis],                 coverage: good}
+
+  # -- Everyday objects ----------------------------------------------------
+  # Never announced unprompted. These exist so "what is on the table?" works.
+  - {id: 68, name: cup,             hi: "कप",                   group: object,   hazard: low,      sources: [coco],                 coverage: good}
+  - {id: 69, name: bottle,          hi: "बोतल",                 group: object,   hazard: low,      sources: [coco],                 coverage: good}
+  - {id: 70, name: plate,           hi: "प्लेट",                group: object,   hazard: low,      sources: [lvis],                 coverage: good}
+  - {id: 71, name: spoon,           hi: "चम्मच",                group: object,   hazard: low,      sources: [coco],                 coverage: good}
+  - {id: 72, name: phone,           hi: "फ़ोन",                 group: object,   hazard: low,      sources: [coco],                 coverage: good}
+  - {id: 73, name: bag,             hi: "बैग",                  group: object,   hazard: medium,   sources: [coco],                 coverage: good}
+  - {id: 74, name: keys,            hi: "चाबी",                 group: object,   hazard: low,      sources: [lvis],                 coverage: partial}
+  - {id: 75, name: wallet,          hi: "बटुआ",                 group: object,   hazard: low,      sources: [lvis],                 coverage: partial}
+  - {id: 76, name: book,            hi: "किताब",                group: object,   hazard: low,      sources: [coco],                 coverage: good}
