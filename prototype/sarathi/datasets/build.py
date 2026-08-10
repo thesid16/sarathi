@@ -68,7 +68,7 @@ class BuildStats:
         eval_total = sum(self.per_class_eval.values())
         lines = [
             f"images   {self.train_images} train  /  {self.val_images} val"
-            + (f"  (of which {self.eval_only_images} held out by licence/design)"
+            + (f"  /  {self.eval_only_images} val_domain (held out by licence and design)"
                if self.eval_only_images else ""),
             f"boxes    {train_total} trainable  /  {eval_total} held out",
             "",
@@ -210,6 +210,25 @@ def assign_splits(
             val_count += len(members)
         else:
             splits[key] = "train"
+
+    # Greedy packing can legitimately leave validation empty when there are few
+    # blocks: one 200-image block against a 15% target is closer to the target
+    # by staying out. An empty val set means every later number is measured on
+    # training data, so force the smallest block across rather than let that
+    # happen silently.
+    if val_count == 0 and len(ordered) > 1:
+        key = ordered[-1][0]
+        splits[key] = "val"
+        log.warning(
+            "validation was empty after packing; moved the smallest block (%s, %d images) "
+            "into val. The target ratio cannot be met with only %d blocks.",
+            key, len(groups[key]), len(ordered),
+        )
+    elif val_count == 0:
+        log.warning(
+            "no validation data: this source produced a single block, so there is "
+            "nothing to hold out. Any metric from this build is measured on training data."
+        )
     return splits
 
 
@@ -275,7 +294,7 @@ def build_dataset(
     # Only directories this function created are touched, identified by the
     # data.yaml it writes. Anything else is left alone rather than guessed at.
     ours = (out / "data.yaml").exists() or not out.exists()
-    for split in ("train", "val"):
+    for split in ("train", "val", "val_domain"):
         for kind in ("images", "labels"):
             target = out / kind / split
             if ours and target.exists():
@@ -300,9 +319,21 @@ def build_dataset(
 
     groups = group_samples(trainable, block_size=block_size)
     split_of = assign_splits(groups, val_fraction)
+
+    # Held-out sources get their OWN split, not merged into val.
+    #
+    # Merging them was a real methodology error. IDD is 41,451 images against
+    # an ordinary val split of 2,655, so validation became 94% IDD - and IDD
+    # contains only 7 of the 26 shipped classes. The result: 17 classes had no
+    # validation data whatsoever, and the headline mAP silently measured
+    # "Indian roads, COCO-ish classes" while claiming to measure the model.
+    #
+    # Two sets answer two different questions. `val` asks whether the model
+    # learned what it was taught; `val_domain` asks whether that transfers to
+    # the country the product is for. Averaging them answers neither.
     for key, members in group_samples(held_out, block_size=block_size).items():
         groups[key] = members
-        split_of[key] = "val"
+        split_of[key] = "val_domain"
 
     seen_names: set[str] = set()
     for key, members in groups.items():
@@ -362,13 +393,14 @@ def build_dataset(
 
             (out / "labels" / split / f"{stem}.txt").write_text("\n".join(lines) + "\n")
             stats.per_source[sample.source] += 1
-            if sample.role == "eval_only":
-                stats.eval_only_images += 1
             if split == "train":
                 stats.train_images += 1
+            elif split == "val_domain":
+                stats.eval_only_images += 1
             else:
                 stats.val_images += 1
 
+    names = {i: name for i, name in enumerate(ship)}
     (out / "data.yaml").write_text(
         yaml.safe_dump(
             {
@@ -376,7 +408,21 @@ def build_dataset(
                 "train": "images/train",
                 "val": "images/val",
                 "nc": len(ship),
-                "names": {i: name for i, name in enumerate(ship)},
+                "names": names,
+            },
+            sort_keys=False,
+        )
+    )
+    # The domain-gap set: same classes, different country. Evaluated
+    # separately so a transfer failure is visible rather than averaged away.
+    (out / "data_domain.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "path": str(out.resolve()),
+                "train": "images/train",
+                "val": "images/val_domain",
+                "nc": len(ship),
+                "names": names,
             },
             sort_keys=False,
         )

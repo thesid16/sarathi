@@ -372,7 +372,7 @@ def test_eval_only_images_are_reported_as_held_out(tmp_path):
         tmp_path / "out", TAX,
     )
     assert stats.eval_only_images == 20
-    assert "held out by licence/design" in stats.report(TAX)
+    assert "held out by licence and design" in stats.report(TAX)
 
 
 def test_parallel_annotation_and_image_trees_resolve(tmp_path):
@@ -476,3 +476,59 @@ def test_a_directory_we_did_not_create_is_left_alone(tmp_path):
     precious.write_text("do not delete me")
     build_dataset([sample_at(tmp_path, "s", "a")], out, TAX)
     assert precious.exists()
+
+
+
+def test_held_out_sources_get_their_own_split_not_merged_into_val(tmp_path):
+    """Merging them was a real methodology error: IDD at 41,451 images against
+    a 2,655-image val split made validation 94% IDD, and IDD carries only 7 of
+    26 shipped classes - so 17 classes had no validation data at all while the
+    headline mAP looked fine."""
+    train = [sample_at(tmp_path, "w", f"f{i}") for i in range(200)]
+    held = [sample_at(tmp_path, "idd", f"g{i}") for i in range(800)]
+    for s_ in held:
+        s_.source, s_.role = "idd", "eval_only"
+
+    out = tmp_path / "out"
+    stats = build_dataset(train + held, out, TAX, val_fraction=0.15, block_size=20)
+
+    val_names = {p.stem.split("__")[0] for p in (out / "images/val").iterdir()}
+    domain_names = {p.stem.split("__")[0] for p in (out / "images/val_domain").iterdir()}
+    assert "idd" not in val_names, "held-out data must not dilute ordinary validation"
+    assert domain_names == {"idd"}
+    assert stats.eval_only_images == 800
+    # ordinary val stays a sane fraction of the trainable data, not swamped
+    assert 0.10 <= stats.val_images / 200 <= 0.20
+
+
+def test_both_data_yamls_are_written(tmp_path):
+    out = tmp_path / "out"
+    held = [sample_at(tmp_path, "idd", f"g{i}") for i in range(20)]
+    for s_ in held:
+        s_.source, s_.role = "idd", "eval_only"
+    build_dataset([sample_at(tmp_path, "w", f"f{i}") for i in range(80)] + held, out, TAX)
+    import yaml as _y
+    assert _y.safe_load((out / "data.yaml").read_text())["val"] == "images/val"
+    assert _y.safe_load((out / "data_domain.yaml").read_text())["val"] == "images/val_domain"
+
+
+
+def test_greedy_packing_never_leaves_validation_empty(tmp_path):
+    """One block against a 15% target is closer to the target by staying out of
+    val entirely - which would mean every later number is measured on training
+    data. Forced across instead, loudly."""
+    from sarathi.datasets.build import assign_splits, group_samples
+
+    samples = [sample_at(tmp_path, "s", f"f{i:04d}") for i in range(400)]
+    groups = group_samples(samples, block_size=200)   # exactly 2 blocks
+    splits = assign_splits(groups, 0.15)
+    assert "val" in splits.values(), "validation must never be empty when it can be filled"
+
+
+def test_a_single_block_source_is_reported_rather_than_silently_unvalidated(tmp_path, caplog):
+    from sarathi.datasets.build import assign_splits, group_samples
+
+    samples = [sample_at(tmp_path, "s", f"f{i}") for i in range(5)]
+    groups = group_samples(samples, block_size=200)   # one block
+    splits = assign_splits(groups, 0.15)
+    assert set(splits.values()) == {"train"}
