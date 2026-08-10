@@ -114,6 +114,71 @@ def cmd_probe(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gate(args: argparse.Namespace) -> int:
+    """Measure how much inference the scheduler actually avoids.
+
+    Every claim about battery life in this project reduces to one number: what
+    fraction of frames never reach the model. This measures it on a real feed
+    rather than asserting it.
+    """
+    from .runtime import MacThermalReader, NullThermalReader, Scheduler, SchedulerConfig
+
+    cfg = load_config(args.config, args.set)
+    spec = args.source if args.source is not None else cfg.get("source")
+
+    scheduler = Scheduler(
+        SchedulerConfig(
+            max_inference_hz=args.max_hz,
+            idle_inference_hz=args.idle_hz,
+            motion_threshold=args.threshold,
+            settle_s=args.settle,
+            keepalive_hz=args.keepalive_hz,
+        ),
+        MacThermalReader() if args.thermal else NullThermalReader(),
+    )
+
+    try:
+        cam = LatestFrame(create_source(spec), reconnect=False).start()
+    except SourceError as exc:
+        log.error("%s", exc)
+        return 2
+
+    print(f"sampling {spec!r} for {args.seconds:.0f}s ...", flush=True)
+    deadline = time.monotonic() + args.seconds
+    simulated_ms = 0.0
+    try:
+        while time.monotonic() < deadline:
+            frame = cam.get(timeout=2.0)
+            if frame is None:
+                if cam.ended:
+                    break
+                continue
+            now = time.monotonic()
+            decision = scheduler.decide(frame, now)
+            if decision.run:
+                # No model loaded yet, so charge a representative cost. Replaced
+                # by real measurements once a detector is benchmarked.
+                scheduler.note_inference(args.inference_ms)
+                simulated_ms += args.inference_ms
+    except KeyboardInterrupt:
+        print()
+    finally:
+        cam.stop()
+
+    elapsed = args.seconds
+    stats = scheduler.stats
+    print()
+    print(stats.summary())
+    if stats.considered:
+        naive_ms = stats.considered * args.inference_ms
+        print()
+        print(f"  duty cycle       {100 * simulated_ms / (elapsed * 1000):.1f}% of wall clock")
+        print(f"  inference work   {simulated_ms / 1000:.1f}s of {elapsed:.0f}s sampled")
+        print(f"  without gating   {naive_ms / 1000:.1f}s  ({naive_ms / max(1, simulated_ms):.1f}x more)")
+        print(f"  final activity   {scheduler.activity.value}")
+    return 0
+
+
 def cmd_config(args: argparse.Namespace) -> int:
     print(load_config(args.config, args.set))
     return 0
@@ -318,6 +383,19 @@ def build_parser() -> argparse.ArgumentParser:
     models = sub.add_parser("models", help="list known models and whether weights are present")
     models.add_argument("--task", choices=["detection", "depth", "ocr", "vlm"])
     models.set_defaults(func=cmd_models)
+
+    gate = sub.add_parser("gate", help="measure how much inference the scheduler avoids")
+    gate.add_argument("--source", "-s", help="index, URL or file path")
+    gate.add_argument("--seconds", type=float, default=20.0)
+    gate.add_argument("--max-hz", type=float, default=8.0)
+    gate.add_argument("--idle-hz", type=float, default=1.0)
+    gate.add_argument("--keepalive-hz", type=float, default=0.2)
+    gate.add_argument("--threshold", type=float, default=0.012)
+    gate.add_argument("--settle", type=float, default=2.0)
+    gate.add_argument("--inference-ms", type=float, default=25.0,
+                      help="assumed cost of one detector pass until one is benchmarked")
+    gate.add_argument("--thermal", action="store_true", help="read real thermal pressure")
+    gate.set_defaults(func=cmd_gate)
 
     speak = sub.add_parser("speak", help="run a scripted walk through the guidance chain")
     speak.add_argument("--lang", default="en", choices=["en", "hi"])
