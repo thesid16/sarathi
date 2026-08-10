@@ -1,0 +1,155 @@
+# Hindi phrasing table.
+#
+# DRAFT - needs review by a native speaker before it ships. Machine-translated
+# object names are technically correct and unnatural to hear a hundred times a
+# day, which is the difference between a tool people use and one they mute.
+# Entries I am least confident about are marked in `review_needed` at the end.
+#
+# Deliberately not a translation of the English table:
+#
+# Direction style differs. English defaults to clock positions, the convention
+# from orientation and mobility training. Hindi defaults to relative directions
+# ("थोड़ा दाएँ") because clock-face bearings in Hindi come out as "एक बजे की
+# दिशा में" - long, and natural only to someone already trained in the
+# convention. Which is right is a question for user testing, not for me; both
+# styles exist in both tables and it is one config key to switch.
+#
+# Word order differs. Hindi puts the direction first for urgent alerts:
+# "सामने गड्ढा" (ahead, pothole) reads more naturally than the reverse.
+#
+# "डेढ़" is used for one-and-a-half. It is one word where English needs four,
+# which matters when the point is to be brief.
+
+lang: hi
+
+bearing_style: relative
+hedge_above_uncertainty: 0.25
+
+templates:
+  urgent: "{bearing} {object}"
+  full: "{object}, {bearing}, {distance}"
+  no_distance: "{object}, {bearing}"
+  ahead_full: "सामने {object}, {distance}"
+  ahead_no_distance: "सामने {object}"
+
+bearing:
+  ahead: "सामने"
+  clock:
+    10: "दस बजे"
+    11: "ग्यारह बजे"
+    12: "सामने"
+    1: "एक बजे"
+    2: "दो बजे"
+    3: "तीन बजे"
+  relative:
+    ahead: "सामने"
+    slight_left: "थोड़ा बाएँ"
+    left: "बाईं ओर"
+    slight_right: "थोड़ा दाएँ"
+    right: "दाईं ओर"
+
+distance:
+  hedge: "लगभग"
+  steps:
+    - {max: 0.75, text: "आधा मीटर"}
+    - {max: 1.25, text: "एक मीटर"}
+    - {max: 1.75, text: "डेढ़ मीटर"}
+    - {max: 2.5, text: "दो मीटर"}
+    - {max: 3.5, text: "तीन मीटर"}
+    - {max: 4.5, text: "चार मीटर"}
+    - {max: 5.5, text: "पाँच मीटर"}
+    - {max: 99.0, text: "छह मीटर"}
+
+objects:
+  stairs_down: "नीचे सीढ़ी"
+  stairs_up: "ऊपर सीढ़ी"
+  step_down: "उतार"
+  step_up: "चढ़ाव"
+  open_manhole: "खुला मैनहोल"
+  manhole_cover: "मैनहोल"
+  pothole: "गड्ढा"
+  puddle: "पानी"
+  drain_grate: "नाली"
+  kerb: "किनारा"
+  tactile_paving: "स्पर्श पट्टी"
+  traffic_light_red: "लाल बत्ती"
+  traffic_light_green: "हरी बत्ती"
+  pedestrian_signal: "पैदल संकेत"
+  crosswalk: "क्रॉसिंग"
+  sign_board: "बोर्ड"
+  sign_post: "खंभा"
+  warning_column: "खंभा"
+  traffic_cone: "कोन"
+  barrier: "अवरोध"
+  pole: "खंभा"
+  bollard: "छोटा खंभा"
+  tree: "पेड़"
+  bin: "कूड़ेदान"
+  bench: "बेंच"
+  person: "व्यक्ति"
+  child: "बच्चा"
+  wheelchair_user: "व्हीलचेयर"
+  dog: "कुत्ता"
+  cow: "गाय"
+  cat: "बिल्ली"
+  car: "कार"
+  bus: "बस"
+  truck: "ट्रक"
+  motorcycle: "मोटरसाइकिल"
+  bicycle: "साइकिल"
+  parked_bicycle: "खड़ी साइकिल"
+  parked_scooter: "खड़ी स्कूटर"
+  auto_rickshaw: "ऑटो"
+  cycle_rickshaw: "रिक्शा"
+  handcart: "ठेला"
+  door: "दरवाज़ा"
+  glass_door: "काँच का दरवाज़ा"
+  doorway: "प्रवेश द्वार"
+  door_handle: "हैंडल"
+  handrail: "रेलिंग"
+  lift: "लिफ़्ट"
+  escalator: "एस्केलेटर"
+  wall: "दीवार"
+  window: "खिड़की"
+  chair: "कुर्सी"
+  table: "मेज़"
+  desk: "डेस्क"
+  sofa: "सोफ़ा"
+  bed: "बिस्तर"
+  shelf: "शेल्फ़"
+  counter: "काउंटर"
+  toilet: "शौचालय"
+  sink: "बेसिन"
+  tap: "नल"
+  light_switch: "स्विच"
+  overhead_wire: "लटकता तार"
+  fire_hydrant: "फ़ायर हाइड्रेंट"
+  construction: "निर्माण कार्य"
+  scaffolding: "मचान"
+  cup: "कप"
+  bottle: "बोतल"
+  plate: "प्लेट"
+  spoon: "चम्मच"
+  phone: "फ़ोन"
+  bag: "बैग"
+  keys: "चाबी"
+  wallet: "बटुआ"
+  book: "किताब"
+
+system:
+  starting: "सारथी तैयार"
+  stopping: "बंद हो रहा है"
+  camera_lost: "कैमरा बंद"
+  camera_back: "कैमरा वापस"
+  nothing_ahead: "सामने कुछ नहीं"
+  reading: "पढ़ रहा हूँ"
+  no_text: "कोई लेख नहीं मिला"
+
+# Terms with no settled everyday Hindi equivalent, where I have coined or
+# borrowed something. A native speaker should confirm these before release.
+review_needed:
+  - tactile_paving   # "स्पर्श पट्टी" is a coinage
+  - warning_column   # shares "खंभा" with pole - may need distinguishing
+  - overhead_wire
+  - pedestrian_signal
+  - bearing_style    # clock vs relative: a user-testing question

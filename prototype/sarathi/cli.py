@@ -186,6 +186,114 @@ def cmd_taxonomy(args: argparse.Namespace) -> int:
     return 0
 
 
+#: A scripted walk, used by `sarathi speak` to exercise the whole guidance
+#: chain without a camera or a model. Each entry is
+#: (start_s, end_s, label, distance_at_start, distance_at_end, bearing_deg).
+#: It is deliberately a scenario with awkward overlaps rather than a tidy
+#: sequence: a car closes while a chair is being announced, and a manhole
+#: appears while the car is mid-sentence.
+DEMO_WALK = [
+    (0.0, 4.0, "chair", 2.2, 1.7, 12.0),  # in the corridor - announced
+    (2.0, 9.0, "car", 6.0, 2.2, 6.0),  # closes while the chair is being said
+    (5.5, 9.0, "open_manhole", 2.4, 1.4, 0.0),  # urgent, cuts in
+    (9.5, 13.0, "person", 4.2, 3.0, -40.0),  # well off to the side - ignored
+]
+
+
+def cmd_speak(args: argparse.Namespace) -> int:
+    """Run a scripted walk through tracking, saliency, phrasing and speech."""
+    import time as _time
+
+    from .guidance import MacSpeaker, NullSpeaker, Phraser, SaliencyEngine, VoiceOutput
+    from .guidance.speech import EarconPlayer
+    from .perception.tracking import Tracker
+    from .taxonomy import Taxonomy
+    from .types import Detection
+
+    taxonomy = Taxonomy.load()
+    phraser = Phraser(lang=args.lang)
+
+    if args.silent:
+        speaker = NullSpeaker()
+    else:
+        try:
+            speaker = MacSpeaker()
+        except RuntimeError as exc:
+            log.error("%s", exc)
+            return 2
+        voice_name = speaker.voice_for(args.lang)
+        print(f"voice: {voice_name or 'system default'}   language: {args.lang}\n")
+
+    voice = VoiceOutput(speaker, EarconPlayer(enabled=not args.silent))
+    tracker = Tracker(min_hits=2)
+    engine = SaliencyEngine()
+
+    dt = 0.3
+    started = _time.monotonic()
+    step = 0
+    peak: dict[str, float] = {}
+    announced: set[str] = set()
+    while True:
+        now = step * dt
+        if now > 13.5:
+            break
+
+        frame: list[Detection] = []
+        for idx, (t0, t1, label, d0, d1, bearing) in enumerate(DEMO_WALK):
+            if not (t0 <= now <= t1):
+                continue
+            progress = (now - t0) / max(1e-6, t1 - t0)
+            distance = d0 + (d1 - d0) * progress
+            cls = taxonomy[label]
+            x = idx * 200
+            frame.append(
+                Detection(
+                    box=(x, 100, x + 60, 300), score=0.9, class_id=cls.id, label=label,
+                    distance_m=distance, bearing_deg=bearing, hazard=cls.hazard,
+                )
+            )
+
+        tracks = tracker.update(frame, now)
+        for candidate in engine.rank(tracks):
+            label = candidate.track.label
+            peak[label] = max(peak.get(label, 0.0), candidate.score)
+        chosen = engine.select(tracks, now)
+        if chosen is not None:
+            announced.add(chosen.track.label)
+            utterance = phraser.utterance(chosen)
+            said = voice.say(utterance, now=now)
+            mark = "  " if said else "x "
+            earcon = f"  [{utterance.earcon}]" if utterance.earcon else ""
+            print(f"{mark}{now:5.1f}s  {utterance.urgency.name:<7} {utterance.text}{earcon}")
+
+        step += 1
+        if not args.silent:
+            # Real time, so the utterance budget and the drop-while-busy rule
+            # behave exactly as they would on a walk.
+            slack = started + now + dt - _time.monotonic()
+            if slack > 0:
+                _time.sleep(slack)
+
+    print(
+        f"\nspoken {voice.spoken_count}  dropped {voice.dropped_count}  "
+        f"interrupted {voice.interrupted_count}"
+    )
+
+    # Restraint is the feature, so make it visible. An object that was tracked
+    # the whole way and deliberately never mentioned is the system working,
+    # not the system failing to notice.
+    ignored = sorted(
+        ((label, score) for label, score in peak.items() if label not in announced),
+        key=lambda kv: -kv[1],
+    )
+    if ignored:
+        floor = engine.config.score_floor
+        print(f"\nseen and deliberately not announced (floor {floor:.2f}):")
+        for label, score in ignored:
+            print(f"    {label:<14} peak score {score:.2f}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sarathi", description=__doc__.split("\n")[0])
     parser.add_argument("--config", "-c", help="YAML config file (or a name under configs/)")
@@ -210,6 +318,11 @@ def build_parser() -> argparse.ArgumentParser:
     models = sub.add_parser("models", help="list known models and whether weights are present")
     models.add_argument("--task", choices=["detection", "depth", "ocr", "vlm"])
     models.set_defaults(func=cmd_models)
+
+    speak = sub.add_parser("speak", help="run a scripted walk through the guidance chain")
+    speak.add_argument("--lang", default="en", choices=["en", "hi"])
+    speak.add_argument("--silent", action="store_true", help="print only, make no sound")
+    speak.set_defaults(func=cmd_speak)
 
     tax = sub.add_parser("taxonomy", help="report class coverage and blind spots")
     tax.add_argument("--file", help="taxonomy YAML (defaults to training/taxonomy/)")
