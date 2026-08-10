@@ -59,7 +59,8 @@ files:
   # version, which is why everything here gets verified rather than assumed.
   litertlm:
     path: gemma-4-E2B-it.litertlm
-    size_bytes: 2587459584
+    size_bytes: 2588147712
+    sha256: 181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c
     url: https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm
 
   # Other builds in the same repository, listed so nobody has to go looking:
@@ -73,10 +74,14 @@ files:
   # arrived at by a different route.
 
 requirements:
-  # The vendor reports 676 MB resident on the GPU backend. Add the model map,
-  # the detector, the camera pipeline and the OS, and 6 GB is the floor at
-  # which this is worth offering at all.
-  min_ram_gb: 6
+  # Revised up from a guess of 6 once it was measured. The vendor reports
+  # 676 MB resident on the GPU backend; on a Pixel 8a the app's PSS goes from
+  # 182 MB to 3,189 MB with the engine live, because the memory-mapped model
+  # pages are genuinely resident after a prefill. It works on 8 GB. It cannot
+  # work on 4 GB, which is what much of this audience owns - hence
+  # user_download, and hence the 90-second idle unload that measurably returns
+  # the memory (3,189 MB -> 253 MB). See docs/05-vlm.md.
+  min_ram_gb: 8
 
 backends: [gpu, cpu]
 

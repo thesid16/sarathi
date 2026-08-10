@@ -58,6 +58,20 @@ class SceneDescriber(
     var loadMs: Long = 0; private set
     var lastDescribeMs: Long = 0; private set
 
+    /** Which backend the engine actually built on. */
+    var backend: String = "none"; private set
+
+    /**
+     * Whether the engine is live right now.
+     *
+     * The caller uses this to choose what to say before starting. The first
+     * load on a device compiles GPU kernels and takes 49 s; every load after
+     * that reuses the cache and takes 4.4 s. Those are different enough that
+     * they deserve different acknowledgements - "Looking" is a lie if the
+     * answer is a minute away.
+     */
+    fun isLoaded(): Boolean = engine != null
+
     /** Whether the weights are present. Nothing else here works without them. */
     fun isInstalled(): Boolean = weightsFile()?.exists() == true
 
@@ -191,10 +205,11 @@ class SceneDescriber(
             // speed and memory, and unlike the detector's GPU delegate this
             // path is the one LiteRT-LM is built around - so it is tried
             // rather than assumed broken by association.
-            val built = build(weights, Backend.GPU()) ?: build(weights, Backend.CPU())
+            val built = build(weights, Backend.GPU())?.also { backend = "gpu" }
+                ?: build(weights, Backend.CPU())?.also { backend = "cpu" }
             loadMs = System.currentTimeMillis() - started
             lastUsedAt = System.currentTimeMillis()
-            if (built != null) Log.i(TAG, "engine ready in ${loadMs}ms")
+            if (built != null) Log.i(TAG, "engine ready on $backend in ${loadMs}ms")
             engine = built
             built
         } catch (t: Throwable) {

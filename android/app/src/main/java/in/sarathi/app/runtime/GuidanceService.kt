@@ -141,10 +141,16 @@ class GuidanceService : LifecycleService() {
             voice.say(phrases.systemPhrase("vlm_missing"), urgent = false)
             return
         }
-        // Spoken before any work starts. Loading the engine alone can take ten
-        // seconds, and silence from a device you cannot look at is
-        // indistinguishable from a device that has died.
-        voice.say(phrases.systemPhrase("describing"), urgent = false)
+        // Spoken before any work starts, and picked to match the actual wait.
+        // Silence from a device you cannot look at is indistinguishable from a
+        // device that has died - but so is a cheerful "Looking" followed by
+        // forty-nine seconds of nothing. Measured on a Pixel 8a: 49 s the very
+        // first time while GPU kernels compile, 4.4 s on every launch after,
+        // and none at all while the engine is still resident.
+        voice.say(
+            phrases.systemPhrase(if (vlm.isLoaded()) "describing" else "describing_first_run"),
+            urgent = false,
+        )
         describeRequested.set(true)
     }
 
@@ -208,7 +214,8 @@ class GuidanceService : LifecycleService() {
             // Not urgent: a hazard warning arriving mid-description should
             // interrupt it, never the other way round.
             voice.say(answer ?: phrases.systemPhrase("no_description"), urgent = false)
-            Log.i(TAG, "vlm load=${vlm.loadMs}ms describe=${vlm.lastDescribeMs}ms")
+            Log.i(TAG, "vlm backend=${vlm.backend} load=${vlm.loadMs}ms " +
+                "describe=${vlm.lastDescribeMs}ms")
         }
     }
 
