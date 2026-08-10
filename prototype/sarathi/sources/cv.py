@@ -176,6 +176,7 @@ class FileSource(CvSource):
         *,
         realtime: bool = True,
         loop: bool = False,
+        media_clock: bool = False,
     ) -> None:
         p = Path(path).expanduser()
         if not p.exists():
@@ -183,6 +184,12 @@ class FileSource(CvSource):
         super().__init__(source_id, str(p), api=cv2.CAP_FFMPEG)
         self._realtime = realtime
         self._loop = loop
+        # Timestamp frames from the video's own presentation clock instead of
+        # wall clock. Lets evaluation run as fast as the machine allows while
+        # every rate limit, cooldown and utterance budget still behaves exactly
+        # as it would during playback - a two-minute walk scores identically
+        # whether it took two minutes or twelve seconds.
+        self._media_clock = media_clock
         self._t0: float | None = None
 
     def open(self) -> SourceInfo:
@@ -213,7 +220,7 @@ class FileSource(CvSource):
             if delay > 0:
                 time.sleep(delay)
 
-        received = time.monotonic()
+        received = pos_ms / 1000.0 if self._media_clock else time.monotonic()
         return Frame(
             image=image,
             seq=self._next_seq(),

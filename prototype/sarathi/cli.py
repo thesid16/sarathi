@@ -259,6 +259,79 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bench(args: argparse.Namespace) -> int:
+    """Replay a clip through the pipeline and score the guidance."""
+    from .bench import SpokenEvent, evaluate, load_truth
+    from .runtime import Pipeline, PipelineConfig, SchedulerConfig
+    from .sources.cv import FileSource
+
+    truth, clip_name, duration = [], Path(args.source).name, 0.0
+    if args.truth:
+        clip_name, duration, truth = load_truth(args.truth)
+
+    pipeline = Pipeline(PipelineConfig(
+        detector=args.detector, depth=args.depth, lang=args.lang,
+        camera_height_m=args.camera_height, camera_pitch_deg=args.camera_pitch,
+        scheduler=SchedulerConfig(max_inference_hz=args.max_hz),
+    ))
+
+    # Media clock: run flat out, but keep every cooldown and budget behaving as
+    # it would in real time.
+    #
+    # Read the source SYNCHRONOUSLY rather than through LatestFrame. The
+    # drop-don't-queue policy is correct for live capture and wrong for replay:
+    # offline the reader outruns the consumer, the single-slot buffer discards
+    # most frames, and which ones survive depends on how fast the machine is.
+    # A benchmark that scores differently on a faster laptop is not a
+    # benchmark. Here every frame reaches the scheduler, and the scheduler
+    # decides what to skip - which is the behaviour under test.
+    source = FileSource("bench", args.source, realtime=False, media_clock=True)
+    source.open()
+
+    spoken: list[SpokenEvent] = []
+    last_t = 0.0
+    started = time.monotonic()
+    try:
+        while True:
+            frame = source.grab()
+            if frame is None:
+                break
+            now = frame.ts_capture
+            last_t = max(last_t, now)
+            result = pipeline.process(frame, now)
+            if result.utterance is not None and result.chosen is not None:
+                spoken.append(SpokenEvent(
+                    t=now, label=result.chosen.track.label,
+                    text=result.utterance.text, urgency=result.utterance.urgency,
+                ))
+    except KeyboardInterrupt:
+        print()
+    finally:
+        source.close()
+        pipeline.close()
+
+    wall = time.monotonic() - started
+    duration = duration or last_t
+    outcome = evaluate(truth, spoken, clip=clip_name, duration_s=duration)
+
+    print(f"replayed {last_t:.0f}s of video in {wall:.1f}s "
+          f"({last_t / max(wall, 1e-6):.0f}x realtime)\n")
+    if args.transcript:
+        print("transcript:")
+        for s_ in spoken:
+            print(f"  {s_.t:6.1f}s  {s_.urgency.name:<7} {s_.text}")
+        print()
+    if truth:
+        print(outcome.summary())
+    else:
+        print(f"no ground truth given - {len(spoken)} utterances, "
+              f"{outcome.utterances_per_min:.1f}/min")
+        print("annotate the clip and pass --truth to score recall and precision")
+    print()
+    print(pipeline.scheduler.stats.summary())
+    return 0
+
+
 def cmd_config(args: argparse.Namespace) -> int:
     print(load_config(args.config, args.set))
     return 0
@@ -476,6 +549,18 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--camera-height", type=float, default=1.20, metavar="M")
     run.add_argument("--camera-pitch", type=float, default=0.0, metavar="DEG")
     run.set_defaults(func=cmd_run)
+
+    bench = sub.add_parser("bench", help="replay a clip and score the guidance")
+    bench.add_argument("--source", "-s", required=True, help="video file")
+    bench.add_argument("--truth", help="ground-truth YAML for the clip")
+    bench.add_argument("--detector", default="yolo11n-coco-320")
+    bench.add_argument("--depth", default=None)
+    bench.add_argument("--lang", default="en", choices=["en", "hi"])
+    bench.add_argument("--max-hz", type=float, default=8.0)
+    bench.add_argument("--camera-height", type=float, default=1.40, metavar="M")
+    bench.add_argument("--camera-pitch", type=float, default=20.0, metavar="DEG")
+    bench.add_argument("--transcript", action="store_true", help="print every utterance")
+    bench.set_defaults(func=cmd_bench)
 
     gate = sub.add_parser("gate", help="measure how much inference the scheduler avoids")
     gate.add_argument("--source", "-s", help="index, URL or file path")
