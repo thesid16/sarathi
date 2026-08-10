@@ -257,7 +257,23 @@ reinstall and walk around the building.
 | [Overview](docs/00-overview.md) | Product, users, requirements, how success is judged |
 | [Architecture](docs/01-architecture.md) | System design, frame lifecycle, threading, power policy |
 | [Model selection](docs/02-model-selection.md) | Candidates, licence analysis, benchmark plan |
+| [Datasets](docs/04-datasets.md) | Every source with its licence, and how the domain gap gets closed without collecting data |
 | [ADRs](docs/adr/) | Decision records, including the options rejected and why |
+
+### Training data
+
+All training data comes from public sources — **nothing is collected with a
+camera.** Every source is listed with its licence in
+[`docs/04-datasets.md`](docs/04-datasets.md), and attribution is generated from
+the dataset configs so it can't drift.
+
+The hard part isn't finding objects, it's finding them from the right
+*viewpoint*: a driving dataset sees an auto-rickshaw through a car windscreen,
+not from a footpath at two metres. The plan leans on
+[WOTR](https://github.com/kxzr/WOTR) (MIT, ~190k objects, pedestrian view) and
+closes the remaining geographic gap with Mapillary's CC BY-SA street imagery
+plus open-vocabulary auto-labelling. Derived annotations get published back
+under the same licence.
 
 ## Licence
 

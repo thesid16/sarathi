@@ -117,11 +117,21 @@ target — but it will not be viable on the 4 GB phones much of the audience
 actually owns. Hence: SmolVLM bundled as the default that always works, larger
 models offered as opt-in downloads gated on available RAM.
 
-## 6. Datasets — and an honest constraint
+## 6. Datasets
 
-**You are not collecting data.** All training data must come from public
-sources. That is workable for most of the taxonomy and genuinely limiting for
-part of it, and the documentation says so rather than papering over it.
+Moved to its own document: **[`04-datasets.md`](04-datasets.md)**, which
+supersedes what follows.
+
+Short version: no data is collected with a camera, everything comes from
+public sources, and having actually searched, that turns out to be far more
+workable than first assumed. A pedestrian-viewpoint obstacle dataset exists
+under MIT (WOTR, ~190k objects), open-manhole data exists under CC BY 4.0, and
+Mapillary supplies worldwide street-level imagery under CC BY-SA with free API
+access — which, combined with open-vocabulary auto-labelling, covers the
+Indian domain gap without anyone picking up a camera.
+
+<details>
+<summary>Superseded first-pass notes</summary>
 
 ### Usable base
 
@@ -168,9 +178,7 @@ limitation with a named class list**, not quietly omitted. An assistive tool
 that silently fails on open manholes is worse than one that documents that it
 does.
 
-> If this later becomes collectable — even a few hundred phone photos on a
-> walk — it would be the single highest-value addition to the project. Noted as
-> future work, not assumed.
+</details>
 
 ### One point on redistribution
 
