@@ -7,12 +7,17 @@ between machines.
 Three things this does that a plain conversion script would not, and each
 exists because of a way these projects usually go wrong:
 
-**Splits by source-and-scene, never at random.** A random split puts adjacent
-frames of the same walk in both train and validation. The model then scores
-beautifully on a validation set it has effectively memorised, and the number is
-worthless. Frames are grouped by their parent directory - which for every
-source here is a capture session - and whole groups go to one side or the
-other.
+**Splits by contiguous blocks of frames, never at random.** A random split puts
+adjacent frames of the same walk in both train and validation. The model then
+scores beautifully on a validation set it has effectively memorised, and the
+number is worthless. Frames are sorted and chunked into blocks, and whole
+blocks go to one side or the other.
+
+An earlier version grouped by parent directory on the assumption that each
+source organises frames by capture session. WOTR does not - all 13,928 images
+sit in one folder - so the whole dataset became a single group and a 15%
+validation target came out at 79%. Blocks plus largest-first packing hold
+regardless of how a source chooses to lay out its files.
 
 **Reports the class distribution before training, not after.** A taxonomy of 77
 classes assembled from public data is violently long-tailed. Discovering that
@@ -24,7 +29,6 @@ and requires it. Generated means it cannot drift out of date.
 
 from __future__ import annotations
 
-import hashlib
 import shutil
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -98,26 +102,61 @@ class BuildStats:
         return "\n".join(lines)
 
 
-def _group_key(sample: Sample) -> str:
-    """Which capture session a sample belongs to.
+def group_samples(samples: list[Sample], block_size: int = 200) -> dict[str, list[Sample]]:
+    """Partition samples into blocks that must not be split across train/val.
 
-    The parent directory is the session for every source here: WOTR keeps one
-    folder per walk, Roboflow exports split by their own train/valid folders,
-    and Mendeley names files by scene. Grouping on it stops near-duplicate
-    frames straddling the split.
+    Grouping by directory alone is not enough. It assumes each source organises
+    frames by capture session, and WOTR does not - all 13,928 images sit in one
+    `JPEGImages` folder, so the whole dataset collapsed into a single group and
+    landed entirely on one side of the split.
+
+    Instead: sort each directory's frames by name and chunk them into blocks of
+    consecutive files. Consecutive filenames are consecutive frames in every
+    source here, so near-duplicates stay together, while there are still plenty
+    of blocks to distribute. The only leakage is at block boundaries - two
+    frames in every `block_size` - which is negligible and bounded, unlike a
+    random split where it is total.
     """
-    return f"{sample.source}/{sample.image_path.parent.name}"
+    by_dir: dict[str, list[Sample]] = defaultdict(list)
+    for sample in samples:
+        by_dir[f"{sample.source}/{sample.image_path.parent.name}"].append(sample)
+
+    groups: dict[str, list[Sample]] = {}
+    for directory, members in by_dir.items():
+        members.sort(key=lambda s: s.image_path.name)
+        for start in range(0, len(members), block_size):
+            groups[f"{directory}#{start // block_size:05d}"] = members[start : start + block_size]
+    return groups
 
 
-def _assign_split(key: str, val_fraction: float) -> str:
-    """Deterministic split from a hash of the group key.
+def assign_splits(
+    groups: dict[str, list[Sample]], val_fraction: float
+) -> dict[str, str]:
+    """Distribute whole blocks to train/val, hitting the target ratio.
 
-    Deterministic rather than random so a rebuild produces the same split, and
-    hashed rather than sequential so ordering does not bias it. Adding a new
-    source cannot reshuffle the existing ones.
+    Greedy largest-first rather than hashing each block independently. Hashing
+    gives the right ratio only in expectation, and with a handful of large
+    blocks the variance is enormous - which is exactly how a 15% validation
+    split came out at 79%. Largest-first packing hits the target regardless of
+    how few or how uneven the blocks are.
+
+    Ordering is by size then key, so the result is deterministic: a rebuild
+    reproduces the split, and it does not depend on filesystem iteration order.
     """
-    digest = hashlib.sha256(key.encode()).hexdigest()
-    return "val" if (int(digest[:8], 16) % 10000) / 10000.0 < val_fraction else "train"
+    total = sum(len(v) for v in groups.values())
+    target_val = total * val_fraction
+    ordered = sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+
+    splits: dict[str, str] = {}
+    val_count = 0
+    for key, members in ordered:
+        # Take it into val if doing so gets us closer to the target than not.
+        if abs((val_count + len(members)) - target_val) <= abs(val_count - target_val):
+            splits[key] = "val"
+            val_count += len(members)
+        else:
+            splits[key] = "train"
+    return splits
 
 
 def build_dataset(
@@ -127,6 +166,7 @@ def build_dataset(
     *,
     val_fraction: float = 0.15,
     copy_images: bool = False,
+    block_size: int = 200,
 ) -> BuildStats:
     """Write a YOLO-format dataset. Returns the distribution to inspect first."""
     taxonomy = taxonomy or Taxonomy.load()
@@ -138,11 +178,9 @@ def build_dataset(
         (out / "images" / split).mkdir(parents=True, exist_ok=True)
         (out / "labels" / split).mkdir(parents=True, exist_ok=True)
 
-    # Decide splits per group first, so every frame of a session lands together.
-    groups: dict[str, list[Sample]] = defaultdict(list)
-    for sample in samples:
-        groups[_group_key(sample)].append(sample)
-    split_of = {key: _assign_split(key, val_fraction) for key in groups}
+    # Decide splits per block first, so near-duplicate frames land together.
+    groups = group_samples(samples, block_size=block_size)
+    split_of = assign_splits(groups, val_fraction)
 
     seen_names: set[str] = set()
     for key, members in groups.items():

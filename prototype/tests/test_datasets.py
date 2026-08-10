@@ -171,18 +171,45 @@ def test_build_writes_yolo_labels_and_a_data_yaml(tmp_path):
     assert stats.per_class["pole"] == 1
 
 
-def test_frames_from_one_session_never_straddle_the_split(tmp_path):
-    """The failure that makes a validation score meaningless."""
-    samples = [sample_at(tmp_path, "walk1", f"f{i}") for i in range(30)]
-    samples += [sample_at(tmp_path, "walk2", f"g{i}") for i in range(30)]
-    build_dataset(samples, tmp_path / "out", TAX, val_fraction=0.5)
+def test_consecutive_frames_stay_together(tmp_path):
+    """Adjacent frames on both sides of the split is what makes a validation
+    score meaningless."""
+    from sarathi.datasets.build import assign_splits, group_samples
 
-    def session_of(p: Path) -> str:
-        return "walk1" if p.stem.split("__")[1].startswith("f") else "walk2"
+    samples = [sample_at(tmp_path, "walk", f"frame_{i:05d}") for i in range(1000)]
+    groups = group_samples(samples, block_size=200)
+    splits = assign_splits(groups, 0.2)
+    # Within any block every frame shares a split, and blocks are contiguous.
+    for key, members in groups.items():
+        names = sorted(s.image_path.stem for s in members)
+        assert len(members) <= 200
+        assert splits[key] in {"train", "val"}
+        # contiguity: the block spans a single run of frame numbers
+        nums = sorted(int(n.split("_")[1]) for n in names)
+        assert nums[-1] - nums[0] == len(nums) - 1
 
-    train = {session_of(p) for p in (tmp_path / "out/images/train").iterdir()}
-    val = {session_of(p) for p in (tmp_path / "out/images/val").iterdir()}
-    assert not (train & val), "a session appeared on both sides of the split"
+
+def test_the_split_hits_its_target_even_with_few_huge_blocks(tmp_path):
+    """One source with everything in a single directory produced a 15% target
+    coming out at 79%. Largest-first packing has to hold regardless."""
+    from sarathi.datasets.build import assign_splits, group_samples
+
+    # One enormous directory plus a couple of small ones - the WOTR shape.
+    samples = [sample_at(tmp_path, "big", f"f{i:05d}") for i in range(13928)]
+    samples += [sample_at(tmp_path, "small", f"g{i:05d}") for i in range(500)]
+    groups = group_samples(samples, block_size=200)
+    splits = assign_splits(groups, 0.15)
+    val = sum(len(v) for k, v in groups.items() if splits[k] == "val")
+    ratio = val / len(samples)
+    assert 0.12 <= ratio <= 0.18, f"target 15%, got {ratio:.0%}"
+
+
+def test_a_single_block_source_does_not_break_the_assignment(tmp_path):
+    from sarathi.datasets.build import assign_splits, group_samples
+
+    samples = [sample_at(tmp_path, "solo", f"f{i}") for i in range(5)]
+    groups = group_samples(samples, block_size=200)
+    assert len(assign_splits(groups, 0.15)) == len(groups)
 
 
 def test_the_split_is_deterministic_across_rebuilds(tmp_path):
