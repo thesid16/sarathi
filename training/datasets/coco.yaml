@@ -1,0 +1,50 @@
+# COCO 2017.
+#
+# Carries the indoor and everyday-object half of the taxonomy, which nothing
+# else in this project supplies. WOTR is a street dataset; it has no chairs,
+# doors, sinks or cups.
+#
+# Deliberately partial. COCO has 80 classes and only ~24 are worth taking; the
+# rest are benchmark furniture (giraffe, frisbee, broccoli) with no navigation
+# value. Taking them would add long-tail classes the model has to spend
+# capacity on and the user will never be told about.
+
+sources:
+  coco:
+    root: data/raw/coco
+    format: coco
+    annotations: annotations/instances_train2017.json
+    images_dir: train2017
+    url: https://cocodataset.org
+    licence: CC-BY-4.0
+    attribution: >
+      COCO 2017 (Lin et al.), annotations CC BY 4.0. Images are Flickr-sourced
+      under their own per-image terms; only derived weights are redistributed.
+    label_map:
+      person: person
+      bicycle: bicycle
+      car: car
+      motorcycle: motorcycle
+      bus: bus
+      truck: truck
+      cat: cat
+      dog: dog
+      cow: cow
+      fire hydrant: fire_hydrant
+      stop sign: stop_sign
+      bench: bench
+      potted plant: planter
+      chair: chair
+      couch: sofa
+      bed: bed
+      dining table: table
+      toilet: toilet
+      sink: sink
+      bottle: bottle
+      cup: cup
+      spoon: spoon
+      book: book
+      cell phone: phone
+      backpack: bag
+      handbag: bag
+      suitcase: bag

@@ -49,12 +49,15 @@ class BuildStats:
     per_source: Counter[str] = field(default_factory=Counter)
     train_images: int = 0
     val_images: int = 0
+    eval_only_images: int = 0
     skipped_unknown_class: Counter[str] = field(default_factory=Counter)
 
     def report(self, taxonomy: Taxonomy) -> str:
         total = sum(self.per_class.values())
         lines = [
-            f"images   {self.train_images} train  /  {self.val_images} val",
+            f"images   {self.train_images} train  /  {self.val_images} val"
+            + (f"  (of which {self.eval_only_images} held out by licence/design)"
+               if self.eval_only_images else ""),
             f"boxes    {total}",
             "",
             "per source:",
@@ -178,9 +181,18 @@ def build_dataset(
         (out / "images" / split).mkdir(parents=True, exist_ok=True)
         (out / "labels" / split).mkdir(parents=True, exist_ok=True)
 
-    # Decide splits per block first, so near-duplicate frames land together.
-    groups = group_samples(samples, block_size=block_size)
+    # Sources marked eval_only never enter the training split, whatever the
+    # ratio works out to. That is a licensing constraint for IDD and a
+    # deliberate experiment besides: holding out Indian road footage measures
+    # the domain gap rather than papering over it.
+    trainable = [s for s in samples if s.role != "eval_only"]
+    held_out = [s for s in samples if s.role == "eval_only"]
+
+    groups = group_samples(trainable, block_size=block_size)
     split_of = assign_splits(groups, val_fraction)
+    for key, members in group_samples(held_out, block_size=block_size).items():
+        groups[key] = members
+        split_of[key] = "val"
 
     seen_names: set[str] = set()
     for key, members in groups.items():
@@ -225,6 +237,8 @@ def build_dataset(
 
             (out / "labels" / split / f"{stem}.txt").write_text("\n".join(lines) + "\n")
             stats.per_source[sample.source] += 1
+            if sample.role == "eval_only":
+                stats.eval_only_images += 1
             if split == "train":
                 stats.train_images += 1
             else:

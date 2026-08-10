@@ -1,0 +1,21 @@
+# Road-surface hazards.
+#
+# open_manhole is the single most dangerous class in the taxonomy and the one
+# nothing else supplies. 677 images is thin, and it is 677 more than zero.
+
+sources:
+  open_manholes:
+    root: data/raw/road/open_manholes
+    format: voc
+    url: https://universe.roboflow.com/aibased-solution-for-realtime-detection-of-road-anomalies-d6eay/open-manholes
+    licence: CC-BY-4.0
+    images: 677
+    attribution: "Open-Manholes dataset, Roboflow Universe, CC BY 4.0"
+    label_map:
+      Open-Manholes: open_manhole
+      Open-Manhole: open_manhole
+      open-manholes: open_manhole
+      Manhole: manhole_cover
+      manhole: manhole_cover
+      pothole: pothole
+      Pothole: pothole

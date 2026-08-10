@@ -341,6 +341,7 @@ def cmd_dataset(args: argparse.Namespace) -> int:
     from .datasets import (
         ReadStats,
         build_dataset,
+        read_coco,
         read_mendeley_stairs,
         read_voc,
         write_attribution,
@@ -365,12 +366,18 @@ def cmd_dataset(args: argparse.Namespace) -> int:
             label_map = spec.get("label_map") or {}
             stats = ReadStats()
             fmt = spec.get("format")
+            role = spec.get("role", "train")
             if fmt == "voc":
-                got = list(read_voc(root, label_map, source=name, stats=stats))
+                got = list(read_voc(root, label_map, source=name, role=role, stats=stats))
+            elif fmt == "coco":
+                got = list(read_coco(
+                    root, label_map, source=name, role=role, stats=stats,
+                    annotations=spec.get("annotations", "annotations/instances_train2017.json"),
+                    images=spec.get("images_dir", "train2017")))
             elif fmt == "mendeley_stairs":
                 got = list(read_mendeley_stairs(
                     root, {int(k): v for k, v in label_map.items()},
-                    source=name, stats=stats))
+                    source=name, role=role, stats=stats))
             else:
                 print(f"  {name:<24} SKIP - unknown format {fmt!r}")
                 continue

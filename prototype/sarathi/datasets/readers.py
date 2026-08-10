@@ -53,6 +53,17 @@ class Sample:
     height: int
     source: str
     boxes: list[Box] = field(default_factory=list)
+    #: "train" - usable for training and validation.
+    #: "eval_only" - never enters the training split.
+    #:
+    #: IDD is eval_only. Its terms are "free for student use", which is a
+    #: restriction rather than an absence of one, and Sarathi publishes weights
+    #: under AGPL to people who are not students. Keeping it out of training
+    #: leaves the released artefact clean - and turns out to be the better
+    #: experiment anyway: training on Chinese and Western footage and
+    #: evaluating on Indian roads measures the domain gap directly instead of
+    #: hiding it.
+    role: str = "train"
     #: Registered depth map, where the dataset has one. Only Mendeley does,
     #: and it is the reason that dataset matters beyond its size.
     depth_path: Path | None = None
@@ -116,9 +127,10 @@ def read_voc(
     label_map: dict[str, str | None],
     *,
     source: str = "voc",
+    role: str = "train",
     stats: ReadStats | None = None,
 ) -> Iterator[Sample]:
-    """Read Pascal VOC XML annotations. Covers WOTR and the Roboflow exports."""
+    """Read Pascal VOC XML annotations. Covers WOTR, IDD and Roboflow exports."""
     root = Path(root)
     stats = stats if stats is not None else ReadStats()
 
@@ -177,7 +189,72 @@ def read_voc(
             continue
         stats.samples_kept += 1
         stats.boxes_kept += len(boxes)
-        yield Sample(image_path, width, height, source, boxes)
+        yield Sample(image_path, width, height, source, boxes, role=role)
+
+
+def read_coco(
+    root: str | Path,
+    label_map: dict[str, str | None],
+    *,
+    annotations: str = "annotations/instances_train2017.json",
+    images: str = "train2017",
+    source: str = "coco",
+    role: str = "train",
+    stats: ReadStats | None = None,
+) -> Iterator[Sample]:
+    """Read COCO-format JSON detection annotations."""
+    import json
+
+    root = Path(root)
+    stats = stats if stats is not None else ReadStats()
+    ann_path = root / annotations
+    if not ann_path.exists():
+        log.warning("COCO annotations not found: %s", ann_path)
+        return
+
+    data = json.loads(ann_path.read_text())
+    categories = {c["id"]: c["name"] for c in data.get("categories", [])}
+    images_by_id = {img["id"]: img for img in data.get("images", [])}
+
+    per_image: dict[int, list[Box]] = {}
+    for ann in data.get("annotations", []):
+        # Crowd regions are a loose blob over many instances. Training on them
+        # teaches the model that a crowd is one object.
+        if ann.get("iscrowd"):
+            continue
+        raw = categories.get(ann.get("category_id"))
+        if raw is None:
+            continue
+        if raw not in label_map:
+            stats.note_unmapped(raw)
+            continue
+        mapped = label_map[raw]
+        if mapped is None:
+            continue
+        x, y, w, h = ann.get("bbox", (0, 0, 0, 0))
+        if w <= 0 or h <= 0:
+            stats.dropped_degenerate += 1
+            continue
+        per_image.setdefault(ann["image_id"], []).append(Box(mapped, x, y, x + w, y + h))
+
+    images_dir = root / images
+    for image_id, boxes in per_image.items():
+        info = images_by_id.get(image_id)
+        if info is None:
+            continue
+        stats.files_seen += 1
+        image_path = images_dir / info["file_name"]
+        if not image_path.exists():
+            stats.missing_images += 1
+            continue
+        width, height = int(info["width"]), int(info["height"])
+        kept = [b.clipped(width, height) for b in boxes]
+        kept = [b for b in kept if b.valid]
+        if not kept:
+            continue
+        stats.samples_kept += 1
+        stats.boxes_kept += len(kept)
+        yield Sample(image_path, width, height, source, kept, role=role)
 
 
 def read_mendeley_stairs(
@@ -185,6 +262,7 @@ def read_mendeley_stairs(
     label_map: dict[int, str],
     *,
     source: str = "mendeley_stairs",
+    role: str = "train",
     edge_height_frac: float = 0.045,
     stats: ReadStats | None = None,
 ) -> Iterator[Sample]:
@@ -265,6 +343,6 @@ def read_mendeley_stairs(
         stats.samples_kept += 1
         stats.boxes_kept += len(boxes)
         yield Sample(
-            image_path, width, height, source, boxes,
+            image_path, width, height, source, boxes, role=role,
             depth_path=depth_path if depth_path.exists() else None,
         )

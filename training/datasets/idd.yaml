@@ -1,0 +1,45 @@
+# India Driving Dataset - Detection.
+#
+# role: eval_only. Two reasons, and they point the same way.
+#
+# Licensing. IDD is "free for student use". That is a restriction, not the
+# absence of one, and Sarathi publishes weights under AGPL-3.0 to people who
+# are not students. Keeping it out of training leaves the released artefact
+# unambiguously clean.
+#
+# Methodology, which is the better reason. Every training source in this
+# project is Chinese (WOTR, Mendeley) or Western (COCO). Holding out Indian
+# road footage entirely turns the licence constraint into the experiment the
+# project most needs: train on what is available, evaluate on the country the
+# product is for, and read the domain gap off directly instead of hoping it is
+# small. A model that scores well on WOTR validation and badly on IDD is
+# telling us something no amount of in-distribution validation would.
+
+sources:
+  idd:
+    root: data/raw/IDD_Detection
+    format: voc
+    role: eval_only
+    url: https://idd.insaan.iiit.ac.in/
+    licence: "Free for student use (see dataset terms)"
+    attribution: >
+      India Driving Dataset (IDD), IIIT Hyderabad, Intel and UC San Diego.
+      Used for evaluation only; no released weights are trained on it.
+    label_map:
+      person: person
+      rider: person
+      car: car
+      bus: bus
+      truck: truck
+      motorcycle: motorcycle
+      bicycle: bicycle
+      autorickshaw: auto_rickshaw
+      animal: cow
+      traffic sign: sign_board
+      vehicle fallback: null      # a catch-all; too heterogeneous to map
+      curb: kerb
+      wall: null
+      fence: null
+      caravan: null
+      trailer: null
+      train: null

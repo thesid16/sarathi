@@ -265,3 +265,89 @@ def test_attribution_is_generated_from_the_configs(tmp_path):
     text = out.read_text()
     assert "CC-BY-4.0" in text and "katti" in text
     assert "Do not edit by hand" in text
+
+
+# -- COCO and eval-only roles ------------------------------------------------
+
+
+def make_coco(tmp_path, categories, annotations, images):
+    import json
+    root = tmp_path / "coco"
+    (root / "annotations").mkdir(parents=True, exist_ok=True)
+    (root / "train2017").mkdir(parents=True, exist_ok=True)
+    for img in images:
+        (root / "train2017" / img["file_name"]).write_bytes(b"\xff\xd8\xff\xd9")
+    (root / "annotations" / "instances_train2017.json").write_text(json.dumps({
+        "categories": categories, "annotations": annotations, "images": images,
+    }))
+    return root
+
+
+def test_coco_reads_and_remaps(tmp_path):
+    from sarathi.datasets import read_coco
+    root = make_coco(
+        tmp_path,
+        [{"id": 1, "name": "chair"}, {"id": 2, "name": "couch"}],
+        [{"image_id": 7, "category_id": 1, "bbox": [10, 20, 50, 60]},
+         {"image_id": 7, "category_id": 2, "bbox": [80, 20, 40, 40]}],
+        [{"id": 7, "file_name": "a.jpg", "width": 640, "height": 480}],
+    )
+    samples = list(read_coco(root, {"chair": "chair", "couch": "sofa"}))
+    assert len(samples) == 1
+    assert sorted(b.label for b in samples[0].boxes) == ["chair", "sofa"]
+    # COCO bbox is xywh; it must come out as corners.
+    chair = next(b for b in samples[0].boxes if b.label == "chair")
+    assert (chair.x1, chair.y1, chair.x2, chair.y2) == (10, 20, 60, 80)
+
+
+def test_coco_crowd_regions_are_skipped(tmp_path):
+    """A crowd box is a blob over many instances; training on it teaches the
+    model that a crowd is one object."""
+    from sarathi.datasets import read_coco
+    root = make_coco(
+        tmp_path, [{"id": 1, "name": "person"}],
+        [{"image_id": 7, "category_id": 1, "bbox": [10, 20, 50, 60], "iscrowd": 1}],
+        [{"id": 7, "file_name": "a.jpg", "width": 640, "height": 480}],
+    )
+    assert list(read_coco(root, {"person": "person"})) == []
+
+
+def test_coco_unmapped_categories_are_counted(tmp_path):
+    from sarathi.datasets import ReadStats, read_coco
+    root = make_coco(
+        tmp_path, [{"id": 1, "name": "giraffe"}],
+        [{"image_id": 7, "category_id": 1, "bbox": [1, 1, 5, 5]}],
+        [{"id": 7, "file_name": "a.jpg", "width": 64, "height": 48}],
+    )
+    stats = ReadStats()
+    list(read_coco(root, {"person": "person"}, stats=stats))
+    assert stats.dropped_unmapped == {"giraffe": 1}
+
+
+def test_missing_coco_annotations_is_not_fatal(tmp_path):
+    from sarathi.datasets import read_coco
+    assert list(read_coco(tmp_path, {"person": "person"})) == []
+
+
+def test_eval_only_samples_never_enter_training(tmp_path):
+    """The licence constraint on IDD, and the domain-gap experiment."""
+    train = [sample_at(tmp_path, "w", f"f{i}") for i in range(100)]
+    held = [sample_at(tmp_path, "idd", f"g{i}") for i in range(100)]
+    for s in held:
+        s.source, s.role = "idd", "eval_only"
+
+    build_dataset(train + held, tmp_path / "out", TAX, val_fraction=0.15)
+    train_names = {p.stem.split("__")[0] for p in (tmp_path / "out/images/train").iterdir()}
+    assert "idd" not in train_names
+
+
+def test_eval_only_images_are_reported_as_held_out(tmp_path):
+    held = [sample_at(tmp_path, "idd", f"g{i}") for i in range(20)]
+    for s in held:
+        s.source, s.role = "idd", "eval_only"
+    stats = build_dataset(
+        [sample_at(tmp_path, "w", f"f{i}") for i in range(80)] + held,
+        tmp_path / "out", TAX,
+    )
+    assert stats.eval_only_images == 20
+    assert "held out by licence/design" in stats.report(TAX)
