@@ -13,8 +13,9 @@ got.
 from __future__ import annotations
 
 import abc
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 import numpy as np
 
@@ -25,13 +26,31 @@ from .manifest import ManifestError, ModelManifest, Task
 class Model(abc.ABC):
     """Base class for anything loaded from a manifest."""
 
-    def __init__(self, manifest: ModelManifest, weights: Path) -> None:
+    def __init__(
+        self,
+        manifest: ModelManifest,
+        weights: Path,
+        labels: list[str] | None = None,
+    ) -> None:
         self.manifest = manifest
         self.weights = weights
+        #: Resolved class names, or None for tasks that have no label set.
+        #: The registry resolves these so adapters never touch the filesystem.
+        self.labels = labels
 
     @property
     def id(self) -> str:
         return self.manifest.id
+
+    def label_for(self, class_id: int) -> str:
+        """Class name for an index, falling back to the index itself.
+
+        A model whose label file is one line short should mislabel one class,
+        not crash the pipeline mid-walk.
+        """
+        if self.labels and 0 <= class_id < len(self.labels):
+            return self.labels[class_id]
+        return str(class_id)
 
     def warmup(self, runs: int = 2) -> None:
         """Run the model on synthetic input so first real call is not an outlier.
@@ -91,7 +110,7 @@ class SceneDescriber(Model):
 
 # -- adapter registry --------------------------------------------------------
 
-AdapterFactory = Callable[[ModelManifest, Path], Model]
+AdapterFactory = Callable[..., Model]
 
 _ADAPTERS: dict[tuple[Task, str], AdapterFactory] = {}
 
@@ -105,7 +124,22 @@ def register_adapter(task: Task, engine: str, factory: AdapterFactory) -> None:
     _ADAPTERS[(task, engine)] = factory
 
 
+def _ensure_builtin_adapters() -> None:
+    """Import the built-in adapters on first use.
+
+    Deferred rather than done at package import: adapters depend on
+    `sarathi.perception`, which depends back on `sarathi.models.manifest`.
+    Importing them eagerly makes that a cycle, and a cycle whose failure mode
+    depends on which module the caller imported first is far worse than a
+    slightly lazy import.
+    """
+    if _ADAPTERS:
+        return
+    from . import adapters  # noqa: F401  - imported for registration side effects
+
+
 def get_adapter(task: Task, engine: str) -> AdapterFactory:
+    _ensure_builtin_adapters()
     try:
         return _ADAPTERS[(task, engine)]
     except KeyError:
@@ -117,4 +151,28 @@ def get_adapter(task: Task, engine: str) -> AdapterFactory:
 
 
 def registered_adapters() -> list[tuple[Task, str]]:
+    _ensure_builtin_adapters()
     return sorted(_ADAPTERS, key=lambda k: (k[0].value, k[1]))
+
+
+@contextmanager
+def adapter_override(task: Task, engine: str, factory: AdapterFactory) -> Iterator[None]:
+    """Temporarily replace an adapter, restoring the previous one on exit.
+
+    The registry is global process state. A test that swaps in a stub with a
+    bare `register_adapter` leaves it swapped for everything that runs
+    afterwards - which shows up as unrelated tests seeing no detections, in a
+    different module, depending on collection order.
+    """
+    _ensure_builtin_adapters()
+    key = (task, engine)
+    had_previous = key in _ADAPTERS
+    previous = _ADAPTERS.get(key)
+    _ADAPTERS[key] = factory
+    try:
+        yield
+    finally:
+        if had_previous:
+            _ADAPTERS[key] = previous  # type: ignore[assignment]
+        else:
+            _ADAPTERS.pop(key, None)

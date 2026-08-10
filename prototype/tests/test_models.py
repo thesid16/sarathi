@@ -21,7 +21,7 @@ from sarathi.models import (
     ModelManifest,
     ModelRegistry,
     Task,
-    register_adapter,
+    adapter_override,
 )
 from sarathi.models.manifest import FileSpec, Layout, Resize
 
@@ -65,7 +65,14 @@ class FakeDetector(Detector):
 
 @pytest.fixture(autouse=True)
 def fake_adapter():
-    register_adapter(Task.DETECTION, "onnxruntime", FakeDetector)
+    """Stub out the real ONNX adapter, and put it back afterwards.
+
+    Without the restore, every module collected after this one silently gets
+    the stub and sees zero detections - a failure that looks like a decoder bug
+    and is really test pollution.
+    """
+    with adapter_override(Task.DETECTION, "onnxruntime", FakeDetector):
+        yield
 
 
 # -- parsing -----------------------------------------------------------------
@@ -334,3 +341,22 @@ def test_engine_with_no_matching_weights_fails_before_the_adapter_lookup(tmp_pat
     registry = ModelRegistry(manifests, weights)
     with pytest.raises(ManifestError, match="no weights for runtime 'prototype'"):
         registry.load("test-detector")
+
+
+def test_adapter_override_restores_the_previous_adapter():
+    """Public seam - if this regresses, test pollution comes back silently."""
+    from sarathi.models.base import get_adapter
+
+    before = get_adapter(Task.DETECTION, "onnxruntime")
+    with adapter_override(Task.DETECTION, "onnxruntime", FakeDetector):
+        assert get_adapter(Task.DETECTION, "onnxruntime") is FakeDetector
+    assert get_adapter(Task.DETECTION, "onnxruntime") is before
+
+
+def test_adapter_override_removes_a_key_it_invented():
+    from sarathi.models.base import get_adapter
+
+    with adapter_override(Task.OCR, "made-up-engine", FakeDetector):
+        assert get_adapter(Task.OCR, "made-up-engine") is FakeDetector
+    with pytest.raises(ManifestError, match="no adapter"):
+        get_adapter(Task.OCR, "made-up-engine")

@@ -9,6 +9,7 @@ on a phone.
 
 from .base import (
     Detector,
+    adapter_override,
     DepthEstimator,
     Model,
     SceneDescriber,
@@ -30,8 +31,14 @@ from .manifest import (
 )
 from .registry import ModelRegistry
 
+# Adapters are NOT imported here. They depend on `sarathi.perception`, which
+# depends back on `sarathi.models.manifest` - importing them at package import
+# time creates a cycle whose symptom depends on which module the caller
+# imported first. `get_adapter` imports them on demand instead.
+
 __all__ = [
     "Detector",
+    "adapter_override",
     "DepthEstimator",
     "Distribution",
     "FileSpec",

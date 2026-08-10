@@ -118,8 +118,14 @@ class ModelRegistry:
         factory = get_adapter(manifest.task, engine)
         weights = file_spec.resolve(self.weights_dir)
 
+        # Labels are resolved here rather than in the adapter, so adapters
+        # never touch the filesystem and stay trivially testable.
+        labels = None
+        if manifest.output is not None and manifest.output.labels is not None:
+            labels = self.load_labels(manifest)
+
         log.info("loading %s (%s, %s)", manifest.id, manifest.task.value, engine)
-        model = factory(manifest, weights)
+        model = factory(manifest, weights, labels)
         model.warmup()
         return model
 

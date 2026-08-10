@@ -70,6 +70,19 @@ class Resize(str, Enum):
     CENTER_CROP = "center_crop"
 
 
+class PadMode(str, Enum):
+    """Where letterbox padding goes. Families genuinely disagree.
+
+    Ultralytics centres the padding; YOLOX puts the image at the top-left and
+    pads right and bottom. Get it wrong and every box is offset by half the pad
+    - detections that are plausible, consistently misplaced, and easy to blame
+    on the model.
+    """
+
+    CENTER = "center"
+    CORNER = "corner"
+
+
 def _require(data: dict[str, Any], key: str, where: str) -> Any:
     if key not in data:
         raise ManifestError(f"{where}: missing required key {key!r}")
@@ -147,6 +160,7 @@ class InputSpec:
     color: str = "RGB"  # RGB | BGR
     dtype: str = "float32"  # float32 | uint8 | int8
     resize: Resize = Resize.LETTERBOX
+    pad_mode: PadMode = PadMode.CENTER
     pad_value: int = 114
     scale: float = 1.0  # applied after cast, before mean/std
     mean: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -188,6 +202,7 @@ class InputSpec:
             color=color,
             dtype=dtype,
             resize=_enum(Resize, str(data.get("resize", "letterbox")).lower(), where, "resize"),
+            pad_mode=_enum(PadMode, str(data.get("pad_mode", "center")).lower(), where, "pad_mode"),
             pad_value=int(data.get("pad_value", 114)),
             scale=float(data.get("scale", 1.0)),
             mean=triple("mean", (0.0, 0.0, 0.0)),

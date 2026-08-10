@@ -20,7 +20,7 @@ depth = ["torch>=2.2", "torchvision>=0.17"]
 ocr = ["rapidocr-onnxruntime>=1.3"]
 # Speech output on non-macOS hosts (macOS uses the built-in `say` binary).
 tts = ["pyttsx3>=2.90"]
-dev = ["pytest>=8.0", "ruff>=0.4"]
+dev = ["pytest>=8.0", "ruff>=0.4", "onnx>=1.16"]
 
 [project.scripts]
 sarathi = "sarathi.cli:main"
