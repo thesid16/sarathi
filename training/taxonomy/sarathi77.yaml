@@ -34,7 +34,8 @@ sources:
   lvis:        {licence: CC-BY-4.0,    viewpoint: mixed,      status: planned}
   openmanhole: {licence: CC-BY-4.0,    viewpoint: road,       status: planned}
   rdd2022:     {licence: CC-BY-SA-4.0, viewpoint: road,       status: planned}
-  stairnet:    {licence: unresolved,   viewpoint: chest-cam,  status: blocked-on-ieee-login}
+  rf_stairs:   {licence: CC-BY-4.0,    viewpoint: mixed,      status: downloaded}
+  mendeley_stairs: {licence: CC-BY-4.0, viewpoint: chest-cam,  status: downloaded}
   idd:         {licence: unresolved,   viewpoint: driving,    status: blocked-on-login}
   mapillary:   {licence: CC-BY-SA-4.0, viewpoint: street,     status: auto-label-pipeline}
 
@@ -43,10 +44,10 @@ classes:
   # -- Ground hazards ------------------------------------------------------
   # The category that justifies the product. These are what a white cane finds
   # late and a phone can find early.
-  - {id: 0,  name: stairs_down,     hi: "नीचे जाती सीढ़ियाँ",   group: ground,   hazard: critical, sources: [stairnet, openimages], coverage: pending}
-  - {id: 1,  name: stairs_up,       hi: "ऊपर जाती सीढ़ियाँ",    group: ground,   hazard: high,     sources: [stairnet, openimages], coverage: pending}
-  - {id: 2,  name: step_down,       hi: "उतार",                group: ground,   hazard: critical, sources: [ss4blind],             coverage: gap}
-  - {id: 3,  name: step_up,         hi: "चढ़ाव",                group: ground,   hazard: high,     sources: [ss4blind],             coverage: gap}
+  - {id: 0,  name: stairs_down,     hi: "नीचे जाती सीढ़ियाँ",   group: ground,   hazard: critical, sources: [rf_stairs, mendeley_stairs, openimages], coverage: good, note: "292 direction-labelled downstair instances across two CC-BY-4.0 Roboflow sets, plus Mendeley concave stair lines"}
+  - {id: 1,  name: stairs_up,       hi: "ऊपर जाती सीढ़ियाँ",    group: ground,   hazard: high,     sources: [rf_stairs, mendeley_stairs, openimages], coverage: good, note: "653 direction-labelled upstair instances plus Mendeley convex stair lines"}
+  - {id: 2,  name: step_down,       hi: "उतार",                group: ground,   hazard: critical, sources: [mendeley_stairs, ss4blind], coverage: partial, note: "Mendeley labels individual stair lines as concave/convex - a single concave line IS a step down. Also the depth tier target."}
+  - {id: 3,  name: step_up,         hi: "चढ़ाव",                group: ground,   hazard: high,     sources: [mendeley_stairs, ss4blind], coverage: partial}
   - {id: 4,  name: kerb,            hi: "फुटपाथ का किनारा",     group: ground,   hazard: critical, sources: [ss4blind, mapillary],  coverage: partial}
   - {id: 5,  name: ramp,            hi: "रैंप",                 group: ground,   hazard: medium,   sources: [openimages],           coverage: partial}
   - {id: 6,  name: open_manhole,    hi: "खुला मैनहोल",          group: ground,   hazard: critical, sources: [openmanhole],          coverage: good}

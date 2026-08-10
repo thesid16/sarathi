@@ -1,0 +1,96 @@
+# Stair sources.
+#
+# StairNet (IEEE DataPort, ~515k egocentric images) was the original plan and
+# is unavailable. It turned out not to matter, and the replacement is better in
+# the one way that counts for this project.
+#
+# StairNet is RGB only. The Mendeley set below ships DEPTH MAPS alongside every
+# RGB frame, with per-stair-line ground truth. That is exactly the data needed
+# to fix the open problem in the depth tier - telling an actual floor from a
+# desk or a wall - which no amount of RGB stair imagery could have addressed.
+# Losing the bigger dataset gained the more useful one.
+
+sources:
+
+  # -- Roboflow Universe, CC BY 4.0, verified via the API ------------------
+  rf_staircase_avionics:
+    url: https://universe.roboflow.com/avionics/staircase-nmchu
+    licence: CC-BY-4.0
+    version: 2
+    format: voc
+    images: 1451
+    attribution: "staircase dataset, avionics workspace, Roboflow Universe, CC BY 4.0"
+    label_map:
+      downstair: stairs_down     # 199 instances
+      upstair: stairs_up         # 517
+      stair: null                # 577 - direction unknown, dropped
+      stairs: null               # 92  - ditto
+      "0": null                  # unnamed numeric classes, provenance unclear
+      "1": null
+      "2": null
+
+  rf_stairs_katti:
+    url: https://universe.roboflow.com/katti/stairs-5yily
+    licence: CC-BY-4.0
+    version: 1
+    format: voc
+    images: 516
+    attribution: "Stairs dataset, katti workspace, Roboflow Universe, CC BY 4.0"
+    label_map:
+      downstair: stairs_down     # 80
+      upstair: stairs_up         # 122
+      Stairs: null               # 547 - direction unknown, dropped
+
+  # -- Mendeley Data, CC BY 4.0 --------------------------------------------
+  mendeley_stairs_depth:
+    url: https://data.mendeley.com/datasets/p28ncjnvgk/2
+    doi: 10.17632/p28ncjnvgk.2
+    licence: CC-BY-4.0
+    attribution: >
+      Wang, Chen; Pei, Zhongcai; Qiu, Shuang; Tang, Zhiyong,
+      "Stair dataset with depth maps", Mendeley Data, V2, CC BY 4.0.
+    size_mb: 411
+    files: 8988
+    samples: 2996          # 2388 train + 608 val, as RGB/depth/label triples
+    resolution: 512x512
+    capture: RealSense D435i, Beihang University campus and public gardens
+    format: >
+      Per sample: color_N.jpg (RGB), color_N.png (depth), color_N.txt (labels).
+      Each label line is "cls x1 y1 x2 y2" describing one stair EDGE as a line
+      segment, not a box: cls 0 = convex, cls 1 = concave.
+    label_map:
+      0: step_up               # convex edge - the tread rises toward you
+      1: step_down             # concave edge - the tread falls away
+
+    notes: >
+      Two distinct uses, and the second is the valuable one.
+
+      As detector data it needs conversion: the annotations are line segments,
+      not boxes. A stair edge becomes a box by taking the segment and giving it
+      a small vertical extent. That is lossy but reasonable - a step edge really
+      is a thin horizontal thing.
+
+      As DEPTH GROUND TRUTH it needs no conversion at all, and it is the only
+      source in this project that has any. Every RGB frame has a registered
+      depth map and a labelled stair geometry, which makes it the right corpus
+      for the open question in docs/01-architecture.md: does the flat-ground fit
+      actually distinguish floor from any smooth surface? That can now be
+      measured against 2,996 real scenes instead of argued about.
+
+      Caveat worth stating: Chinese campus and garden scenes, captured with a
+      depth camera at what is likely tripod or handheld height. Right physics,
+      not necessarily the right viewpoint or country - the same trade as WOTR.
+
+# Not obtained, and not worth chasing:
+#   class-yy5k4/staircase-4wn6y            36 images, no generated export
+#   datacluster-labs/stairs-image-dataset  94 images, no generated export
+# Both are CC BY 4.0 and both are small enough that their absence changes
+# nothing. Recorded so nobody re-derives the same dead end.
+
+unavailable:
+  stairnet:
+    url: https://ieee-dataport.org/documents/stairnet-computer-vision-dataset-stair-recognition
+    reason: >
+      Requires an IEEE DataPort subscription. Access is account-based rather
+      than IP-based, so an institutional network does not unlock it. Ruled out.
+    replaced_by: [rf_staircase_avionics, rf_stairs_katti, mendeley_stairs_depth]

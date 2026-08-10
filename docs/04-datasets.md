@@ -79,6 +79,36 @@ size is **1020×1360 — portrait**. Handheld phone footage often is, and square
 letterboxing throws away most of a portrait frame. Worth measuring whether a
 portrait-aware crop beats the standard recipe before assuming it doesn't.
 
+#### Stairs, after losing StairNet
+
+StairNet was the plan and became unavailable. The replacements are smaller and
+one of them is strictly more useful.
+
+| Dataset | Licence | Size | What it gives |
+|---|---|---|---|
+| [avionics/staircase-nmchu](https://universe.roboflow.com/avionics/staircase-nmchu) | CC BY 4.0 | 1,451 images | `downstair` ×199, `upstair` ×517 — **direction-labelled** |
+| [katti/stairs-5yily](https://universe.roboflow.com/katti/stairs-5yily) | CC BY 4.0 | 516 images | `downstair` ×80, `upstair` ×122 |
+| **[Mendeley p28ncjnvgk](https://data.mendeley.com/datasets/p28ncjnvgk/2)** | CC BY 4.0 | 2,996 samples, 411 MB | RGB **+ registered depth maps** + per-stair-edge convex/concave ground truth |
+
+Direction matters more than volume here. A model that detects "stairs" without
+knowing which way they go is close to useless for this product: stairs up are
+an inconvenience, stairs down are the thing that breaks a hip. ~292
+down-labelled and ~653 up-labelled instances is modest, but it is the right
+label.
+
+**The Mendeley set solves a problem StairNet could not.** It is the only source
+in this project carrying depth ground truth. The open question in
+[`01-architecture.md`](01-architecture.md) — does the flat-ground fit actually
+distinguish a floor from a desk or a wall? — is answerable against 2,996 real
+scenes with registered depth, rather than argued about. StairNet is RGB only
+and could never have settled it.
+
+Two conversions are needed and both are recorded in
+[`training/datasets/stairs.yaml`](../training/datasets/stairs.yaml): the
+Mendeley annotations are line segments rather than boxes, and roughly half the
+Roboflow stair instances are labelled "stair" with no direction and are
+dropped rather than guessed at.
+
 ### Tier B — broad object coverage
 
 | Dataset | Licence | Value |
@@ -93,7 +123,7 @@ portrait-aware crop beats the standard recipe before assuming it doesn't.
 |---|---|---|
 | **[IDD](https://idd.insaan.iiit.ac.in/)** — India Driving Dataset | ⚠️ Licence shown only after login; still unread | 34 classes including `autorickshaw` and `animal`. IDD Detection is 22.8 GB. **The signed download link is session-gated** — it resolves to HTML unless the request carries a login cookie, so fetching it needs a cookie-bearing request rather than the URL alone. Highest-value single item for Indian content. |
 | **[SS4Blind](https://github.com/elnino9ykl/SS4Blind)** | ⚠️ No licence stated in repo | **Downloaded: 3,342 images.** Gardens Point 1,200 · RGB-D-SS 1,200 · crosswalk 382 · terrain 360 · curb 200. All wearable-camera viewpoint. Note these are **segmentation masks, not boxes** — directly useful to the ground-surface and depth tier, and needing mask→box conversion to feed the detector. Small but precisely on-target. Licence still needs an email to the authors. |
-| **[StairNet](https://ieee-dataport.org/documents/stairnet-computer-vision-dataset-stair-recognition)** | ⚠️ Requires IEEE DataPort subscription | ~515,000 egocentric images of stairs from a chest-mounted camera, indoor and outdoor. Enormous and exactly the right viewpoint. **Check whether SNU has an IEEE subscription** — if so this is free. |
+| ~~StairNet~~ | ❌ **Ruled out** — IEEE DataPort access is account-based, not IP-based, so an institutional network does not unlock it | Replaced, and the replacement is better. See below. |
 | **SENSATION-DS** ([arXiv 2607.21137](https://arxiv.org/abs/2607.21137)) | ⚠️ Very recent; release terms unclear | 2,752 image-mask pairs, chest-height pedestrian view, 9-class navigation taxonomy. |
 | **Mapillary Vistas** | ❌ Research-only | Has `curb`, `manhole`, `pothole` classes. Excluded — but see §4, the *imagery* is a different licence from the *annotation dataset*. |
 
