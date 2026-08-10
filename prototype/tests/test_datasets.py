@@ -448,3 +448,31 @@ def test_held_out_classes_survive_the_shipping_filter_in_the_report(tmp_path):
     assert "auto_rickshaw" not in stats.shipped
     assert stats.per_class_eval["auto_rickshaw"] == 60
     assert "auto_rickshaw" in stats.report(TAX)
+
+
+def test_a_rebuild_removes_labels_from_the_previous_id_space(tmp_path):
+    """The failure was silent and expensive: when the shipped set went from 77
+    classes to 26, stale label files still referenced ids 43-47. The trainer's
+    response is 'ignoring corrupt label' - it trains on a reduced subset with
+    no error and no non-zero exit."""
+    out = tmp_path / "out"
+    build_dataset([sample_at(tmp_path, "s", "a")], out, TAX)
+    stale = out / "labels" / "train" / "leftover.txt"
+    stale.write_text("47 0.5 0.5 0.1 0.1\n")
+    assert stale.exists()
+
+    build_dataset([sample_at(tmp_path, "s", "b")], out, TAX)
+    assert not stale.exists()
+    for label_file in (out / "labels").rglob("*.txt"):
+        for line in label_file.read_text().splitlines():
+            assert int(line.split()[0]) == 0  # only the one shipped class
+
+
+def test_a_directory_we_did_not_create_is_left_alone(tmp_path):
+    """Never delete files out of a path this builder did not write."""
+    out = tmp_path / "somebody_elses"
+    (out / "labels" / "train").mkdir(parents=True)
+    precious = out / "labels" / "train" / "precious.txt"
+    precious.write_text("do not delete me")
+    build_dataset([sample_at(tmp_path, "s", "a")], out, TAX)
+    assert precious.exists()

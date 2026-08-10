@@ -263,9 +263,33 @@ def build_dataset(
         c.name for c in taxonomy if c.name not in index
     ]
 
+    # Clear previous output before writing.
+    #
+    # Rebuilding into a populated directory silently mixes label files from two
+    # different id spaces. When the shipped class set changed from 77 to 26,
+    # the old files kept referring to ids 43-47, and the trainer's response was
+    # to "ignore corrupt label" and carry on - training on a quietly reduced
+    # subset with no error and no exit code. A stale build directory has to be
+    # impossible rather than merely discouraged.
+    #
+    # Only directories this function created are touched, identified by the
+    # data.yaml it writes. Anything else is left alone rather than guessed at.
+    ours = (out / "data.yaml").exists() or not out.exists()
     for split in ("train", "val"):
-        (out / "images" / split).mkdir(parents=True, exist_ok=True)
-        (out / "labels" / split).mkdir(parents=True, exist_ok=True)
+        for kind in ("images", "labels"):
+            target = out / kind / split
+            if ours and target.exists():
+                for existing in target.iterdir():
+                    if existing.is_file() or existing.is_symlink():
+                        existing.unlink()
+            target.mkdir(parents=True, exist_ok=True)
+    if not ours:
+        log.warning(
+            "%s was not created by this builder (no data.yaml); leaving existing "
+            "files in place. Stale labels from a previous id space will be "
+            "silently ignored by the trainer - delete it by hand if unsure.",
+            out,
+        )
 
     # Sources marked eval_only never enter the training split, whatever the
     # ratio works out to. That is a licensing constraint for IDD and a
