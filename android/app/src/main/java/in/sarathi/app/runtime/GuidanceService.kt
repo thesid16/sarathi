@@ -86,6 +86,7 @@ class GuidanceService : LifecycleService() {
         }
         Log.i(TAG, if (detector != null) "detector loaded: $DETECTOR_MANIFEST"
                    else "running WITHOUT a detector - camera and speech only")
+        detector?.let { Log.i(TAG, it.selfTest(this)) }
 
         camera = CameraSource(this)
         camera.start(this) { frame -> onFrame(frame) }

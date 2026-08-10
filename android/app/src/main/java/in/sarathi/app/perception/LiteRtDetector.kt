@@ -212,6 +212,29 @@ class LiteRtDetector private constructor(
         return if (union > 0f) inter / union else 0f
     }
 
+    /**
+     * Run the model on a known image bundled with the app.
+     *
+     * A detection count of zero is ambiguous on a device with no preview: the
+     * scene may genuinely be empty, or preprocessing may be broken, or the
+     * quantized graph may have collapsed. Scoring a frame whose answer is
+     * known settles it without anyone having to point the phone at anything.
+     */
+    fun selfTest(context: Context): String {
+        val bitmap = runCatching {
+            context.assets.open("models/selftest.jpg").use {
+                android.graphics.BitmapFactory.decodeStream(it)
+            }
+        }.getOrNull() ?: return "self-test: no bundled image"
+        val found = detect(bitmap)
+        val summary = found.take(4).joinToString(", ") {
+            "${it.label} ${"%.2f".format(it.score)}"
+        }
+        bitmap.recycle()
+        return "self-test: maxScore=${"%.3f".format(lastMaxScore)} " +
+            "detections=${found.size} [${summary}] in ${lastInferenceMs}ms"
+    }
+
     fun close() = interpreter.close()
 
     companion object {
