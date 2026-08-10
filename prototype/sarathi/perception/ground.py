@@ -39,7 +39,7 @@ reasonable starting point; it wants confirming on a real rig.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -61,12 +61,110 @@ class GroundReading:
     #: values mean the near field was not floor - looking at a wall, or the
     #: camera is not pointed where the model assumes - and the reading should
     #: not be trusted or spoken.
+    #:
+    #: **It does not mean the surface is the floor.** See `surface_height_m`.
     fit_quality: float
     samples: int
 
+    #: Fitted line, `observed ≈ slope * tan(depression) + intercept`. Exposed
+    #: because the slope is what carries the surface height, once something
+    #: else supplies the depth model's scale.
+    slope: float = 0.0
+    intercept: float = 0.0
+
+    #: How far the fitted surface is below the camera, in metres, or None when
+    #: nothing anchored the scale. This is the number that says "floor" rather
+    #: than merely "flat".
+    surface_height_m: float | None = None
+
+    @property
+    def flat(self) -> bool:
+        """The near field is a plane. Says nothing about *which* plane."""
+        return self.samples >= 12 and self.fit_quality >= 0.80
+
     @property
     def trustworthy(self) -> bool:
-        return self.samples >= 12 and self.fit_quality >= 0.80
+        """Safe to speak from.
+
+        Requires both that the near field is flat and that it sits about where
+        the floor should be. Flatness alone is not evidence of floor: a desk,
+        a table, a car bonnet and a low wall are all excellent planes, and the
+        fit scores 1.0000 on every one of them.
+        """
+        return self.flat and self.height_is_plausible
+
+    @property
+    def height_is_plausible(self) -> bool:
+        if self.surface_height_m is None:
+            return False
+        return HEIGHT_TOLERANCE[0] <= self.surface_height_m <= HEIGHT_TOLERANCE[1]
+
+
+#: Fraction of the mounted camera height a surface may sit at and still be
+#: called the floor.
+#:
+#: Deliberately asymmetric in its consequences rather than centred on 1.0. The
+#: band has to be wide at all because the configured mount height is a guess
+#: about how someone holds their phone - chest, waist or hand is a range of
+#: roughly 0.95 m to 1.6 m - and because the anchor distance carries its own
+#: error.
+#:
+#: But the two mistakes do not cost the same. Accepting a desk as the floor
+#: produces a confident "step down ahead" at its far edge, and a few of those
+#: is all it takes for someone to stop believing the system. Rejecting a real
+#: floor produces silence, which is exactly what this tier does today anyway.
+#: So the bounds are tightened until the cheap error is the common one.
+HEIGHT_TOLERANCE_FRACTION = (0.78, 1.35)
+
+#: Filled in at import from the default camera height. Recomputed per call when
+#: a camera is supplied.
+HEIGHT_TOLERANCE = (0.0, 0.0)
+
+
+def surface_height_m(
+    reading: GroundReading,
+    anchor_depth: float,
+    anchor_distance_m: float,
+) -> float | None:
+    """Recover how far the fitted plane sits below the camera, in metres.
+
+    The whole reason the flat-ground fit is safe is that it is scale
+    invariant - the depth model's arbitrary scale cancels. That invariance is
+    also precisely why the fit cannot tell a floor from a desk. Writing the
+    model out makes it unavoidable:
+
+        observed(y) = s * (1 / d(y)) + t          # relative inverse depth
+        1 / d(y)    = tan(depression) / h         # a horizontal plane at height h
+
+        => observed(y) = (s / h) * tan(depression) + t
+
+    The fit measures `slope = s / h`. Two unknowns, one equation: **h cannot
+    be recovered from the plane alone, at any fit quality.** Halving the
+    surface height and halving the depth model's scale produce byte-identical
+    depth maps. No threshold on `fit_quality` can separate them, and the
+    measured values bear that out - a floor at 1.2 m and a desk at 0.45 m both
+    score exactly 1.0000.
+
+    So the scale has to come from somewhere else, and this project already
+    computes it: the geometric estimator returns metres to a detected object
+    from its ground contact and a size prior. That object's depth value pins
+    `s`, and the height follows:
+
+        s = (anchor_depth - intercept) * anchor_distance_m
+        h = s / slope
+
+    Returns None when the arithmetic is degenerate - a near-zero slope means
+    the surface is nearly parallel to the view direction, which is a wall.
+    """
+    if reading.slope <= 1e-9 or anchor_distance_m <= 0.0:
+        return None
+    scale = (anchor_depth - reading.intercept) * anchor_distance_m
+    if scale <= 0.0:
+        return None
+    height = scale / reading.slope
+    if not math.isfinite(height) or height <= 0.0:
+        return None
+    return float(height)
 
 
 def _depth_row_to_frame_y(row: int, transform: Transform) -> float:
@@ -87,13 +185,26 @@ def ground_profile(
     fit_fraction: float = 0.5,
     sigma: float = 3.0,
     min_run: int = 3,
+    anchor: tuple[float, float] | None = None,
 ) -> GroundReading:
     """Fit flat ground to the near field and find where the floor stops obeying it.
 
     `corridor_frac` is the width of the sampled strip as a fraction of the
     frame - the walking corridor, not the whole scene. A step down two metres
     off to the left is not this user's problem.
+
+    `anchor` is `(depth_value, distance_m)` for some point whose metric
+    distance is known independently - in practice a detection's ground contact,
+    measured by the geometric estimator. Without it the reading can say the
+    near field is *flat* but not that it is the *floor*, and `trustworthy` is
+    False. See `surface_height_m` for why that is a mathematical limit rather
+    than a tuning problem.
     """
+    global HEIGHT_TOLERANCE
+    HEIGHT_TOLERANCE = (
+        camera.mount_height_m * HEIGHT_TOLERANCE_FRACTION[0],
+        camera.mount_height_m * HEIGHT_TOLERANCE_FRACTION[1],
+    )
     if depth.ndim != 2 or depth.size == 0:
         return GroundReading(None, None, None, 0.0, 0)
 
@@ -220,13 +331,19 @@ def ground_profile(
         if sign == 0:
             free_distance = float(dist[idx])
 
-    return GroundReading(
+    reading = GroundReading(
         free_distance_m=free_distance,
         anomaly=anomaly,
         anomaly_distance_m=anomaly_distance,
         fit_quality=fit_quality,
         samples=len(rows),
+        slope=float(a),
+        intercept=float(b),
     )
+    if anchor is not None:
+        height = surface_height_m(reading, anchor[0], anchor[1])
+        reading = replace(reading, surface_height_m=height)
+    return reading
 
 
 def depth_in_box(

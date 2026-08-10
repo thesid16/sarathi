@@ -60,8 +60,11 @@ def distance_to_row(metres: float) -> int:
 def test_flat_floor_reports_no_anomaly():
     reading = ground_profile(flat_floor(), CAM, TF)
     assert reading.anomaly is None
-    assert reading.trustworthy
+    assert reading.flat
     assert reading.fit_quality > 0.99
+    # Flat, but not yet *trusted*: nothing has established that this plane is
+    # the floor rather than any other flat thing. See the surface-height tests.
+    assert not reading.trustworthy
 
 
 def test_flat_floor_reports_free_space_to_the_far_field():
@@ -195,3 +198,137 @@ def test_depth_in_box_clamps_to_the_map():
 
 def test_depth_in_box_rejects_an_empty_region():
     assert depth_in_box(np.ones((SIZE, SIZE), np.float32), (10, 10, 10, 10), TF) is None
+
+
+# -- telling the floor from anything else flat -------------------------------
+#
+# `flat_floor` is parameterised by the depth model's arbitrary scale and offset
+# precisely so these tests can show what the fit can and cannot see through.
+
+
+def surface(height_m: float, scale: float = 3.0, offset: float = 0.4) -> np.ndarray:
+    """A horizontal plane `height_m` below the camera, in inverse relative depth."""
+    depth = np.full((SIZE, SIZE), 0.05, np.float32)
+    for row in range(SIZE):
+        y = frame_y_of(row)
+        alpha = math.atan2(y - CAM.cy, CAM.fy)
+        depression = math.radians(CAM.pitch_deg) + alpha
+        if depression <= 1e-3:
+            continue
+        # observed = scale / distance + offset, distance = height / tan(dep)
+        depth[row, :] = scale * math.tan(depression) / height_m + offset
+    return depth
+
+
+def anchor_on(height_m: float, scale: float, offset: float, distance_m: float):
+    """What an object standing on that plane at `distance_m` looks like."""
+    return (scale / distance_m + offset, distance_m)
+
+
+def test_fit_quality_cannot_tell_a_desk_from_the_floor():
+    """The central negative result, and the reason this machinery exists.
+
+    The flat-ground fit is scale invariant - that is exactly what makes it
+    usable on a depth model whose output has no units. The same invariance
+    means it cannot recover how far below the camera the plane sits, because
+    halving the height and halving the model's scale produce identical depth
+    maps. A desk is not a worse plane than a floor. It is an equally good one.
+
+    So this is not a threshold that needs tuning. No value of `fit_quality`
+    separates these, and the measurement says so.
+    """
+    floor = ground_profile(surface(CAM.mount_height_m), CAM, TF)
+    desk = ground_profile(surface(0.45), CAM, TF)
+
+    assert floor.fit_quality > 0.99
+    assert desk.fit_quality > 0.99
+    assert abs(floor.fit_quality - desk.fit_quality) < 0.01
+    assert floor.flat and desk.flat
+
+
+def test_an_anchor_recovers_the_true_surface_height():
+    """One known distance is enough to break the ambiguity.
+
+    And it must work regardless of the depth model's scale, since that is the
+    unknown being cancelled.
+    """
+    for scale, offset in ((3.0, 0.4), (17.0, -2.5), (0.5, 0.0)):
+        reading = ground_profile(
+            surface(1.4, scale, offset), CAM, TF,
+            anchor=anchor_on(1.4, scale, offset, distance_m=3.0),
+        )
+        assert reading.surface_height_m == pytest.approx(1.4, rel=0.05)
+
+
+def test_anchored_floor_is_trusted_and_anchored_desk_is_not():
+    floor = ground_profile(
+        surface(1.4), CAM, TF, anchor=anchor_on(1.4, 3.0, 0.4, distance_m=3.0)
+    )
+    desk = ground_profile(
+        surface(0.45), CAM, TF, anchor=anchor_on(0.45, 3.0, 0.4, distance_m=3.0)
+    )
+    assert floor.trustworthy
+    assert not desk.trustworthy
+    assert desk.flat  # still a fine plane; just not the floor
+
+
+@pytest.mark.parametrize("fraction", [0.85, 1.0, 1.3])
+def test_the_band_absorbs_ordinary_posture(fraction: float) -> None:
+    """The configured mount height is a guess about how someone stands.
+
+    Slouching, straightening or raising the phone moves the real height by
+    tens of percent without changing anything about the floor, so the band has
+    to absorb that or the tier goes silent on a perfectly good floor.
+    """
+    height_m = CAM.mount_height_m * fraction
+    reading = ground_profile(
+        surface(height_m), CAM, TF, anchor=anchor_on(height_m, 3.0, 0.4, 3.0)
+    )
+    assert reading.trustworthy
+
+
+def test_a_phone_held_far_lower_than_configured_goes_silent() -> None:
+    """A deliberate false negative, recorded so it is not mistaken for a bug.
+
+    The band cannot be widened to cover a phone carried at hip height without
+    also admitting a counter or a desk, because at that point the two are the
+    same measurement. The two errors do not cost the same: a rejected floor is
+    silence, which is what this tier does today anyway, while an accepted desk
+    is a confident "step down ahead" that is not there.
+
+    So the tier declines rather than guesses, and the fix is for the user's
+    configured mount height to match how they actually carry the phone.
+    """
+    height_m = CAM.mount_height_m * 0.6
+    reading = ground_profile(
+        surface(height_m), CAM, TF, anchor=anchor_on(height_m, 3.0, 0.4, 3.0)
+    )
+    assert reading.flat
+    assert reading.surface_height_m == pytest.approx(height_m, rel=0.05)
+    assert not reading.trustworthy
+
+
+@pytest.mark.parametrize("height_m", [0.35, 0.45, 0.7, 0.9])
+def test_surfaces_well_above_the_floor_are_refused(height_m: float):
+    """Desks, counters, low walls and platform edges.
+
+    Accepting one of these produces a confident "step down ahead" at its far
+    edge, which is the single fastest way to make someone stop trusting the
+    system.
+    """
+    reading = ground_profile(
+        surface(height_m), CAM, TF, anchor=anchor_on(height_m, 3.0, 0.4, 3.0)
+    )
+    assert not reading.trustworthy
+
+
+def test_without_an_anchor_nothing_is_trusted():
+    """The honest default.
+
+    No detection standing on the ground means no metric scale, which means the
+    plane's identity is unknown. Unknown must not read as floor.
+    """
+    reading = ground_profile(surface(CAM.mount_height_m), CAM, TF)
+    assert reading.flat
+    assert reading.surface_height_m is None
+    assert not reading.trustworthy

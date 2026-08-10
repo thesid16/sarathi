@@ -26,6 +26,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 from ..guidance.phrasing import Phraser
@@ -33,7 +34,12 @@ from ..guidance.saliency import Ranked, SaliencyConfig, SaliencyEngine
 from ..guidance.speech import NullSpeaker, VoiceOutput
 from ..models import DepthEstimator, Detector, ModelRegistry
 from ..perception.distance import CameraModel, SizePriors, annotate
-from ..perception.ground import GroundReading, ground_profile
+from ..perception.ground import GroundReading, depth_in_box, ground_profile
+
+#: Distance band a detection must fall in to be usable as a scale anchor.
+#: Closer than this and its ground contact is at the frame edge; further and
+#: the ground-distance curve is too steep for the contact row to be precise.
+ANCHOR_RANGE_M = (1.5, 6.0)
 from ..perception.tracking import Track, Tracker
 from ..taxonomy import Taxonomy
 from ..types import Detection, Frame, Hazard, Utterance
@@ -201,7 +207,10 @@ class Pipeline:
             t0 = time.perf_counter()
             dmap = self.depth.estimate(frame.image)
             assert self.depth.last_transform is not None
-            reading = ground_profile(dmap, camera, self.depth.last_transform)
+            reading = ground_profile(
+                dmap, camera, self.depth.last_transform,
+                anchor=self._scale_anchor(detections, dmap, self.depth.last_transform),
+            )
             stage["depth"] = (time.perf_counter() - t0) * 1000.0
             if reading.trustworthy:
                 self._ground, self._ground_at = reading, now
@@ -240,6 +249,51 @@ class Pipeline:
             ground=ground,
             stage_ms=stage,
         )
+
+    def _scale_anchor(
+        self,
+        detections: list[Detection],
+        depth: np.ndarray,
+        transform,
+    ) -> tuple[float, float] | None:
+        """Pin the depth model's arbitrary scale to metres, using a detection.
+
+        Relative depth cannot say how far below the camera a flat surface sits,
+        so it cannot tell a floor from a desk - see `surface_height_m`. What it
+        needs is one point whose distance is known by other means, and the
+        geometric estimator already produces exactly that: metres to an object
+        standing on the ground, from its ground contact and a size prior.
+
+        The anchor is chosen to be the one most likely to be right rather than
+        the nearest or the largest:
+
+        * `grounded` only. An object whose distance came from a size prior
+          while it hangs on a wall anchors the scale to a plane it is not on.
+        * nothing too close or too far. Very near the camera the box bottom is
+          at the frame edge and the contact row is unreliable; far away, a
+          one-row error in the contact point is worth a large error in metres,
+          because the ground-distance curve steepens towards the horizon.
+        * the highest-confidence survivor, because a misdetection here does not
+          produce a wrong distance to one object - it produces a wrong verdict
+          about the entire floor.
+        """
+        usable = [
+            det for det in detections
+            if det.distance_m is not None
+            # "ground" and "fused" both rest on a ground contact. "size" does
+            # not - a clock measured from its size prior is on a wall, and
+            # anchoring the floor's scale to it would be anchoring to a plane
+            # the object is not on. "bounded" is an inequality, not a distance.
+            and det.distance_source in ("ground", "fused")
+            and ANCHOR_RANGE_M[0] <= det.distance_m <= ANCHOR_RANGE_M[1]
+        ]
+        if not usable:
+            return None
+        best = max(usable, key=lambda d: d.score)
+        value = depth_in_box(depth, best.box, transform)
+        if value is None:
+            return None
+        return (value, float(best.distance_m))
 
     def _vote(self, reading: GroundReading, now: float) -> None:
         if reading.anomaly == "step_down" and reading.anomaly_distance_m is not None:

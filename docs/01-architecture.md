@@ -406,7 +406,7 @@ is a separate piece of work.
 
 ### The depth tier is unvalidated on real floors, and is off by default
 
-The floor analysis passes 17 tests against synthetic geometry, correctly
+The floor analysis passes its tests against synthetic geometry, correctly
 detects drop-offs and steps, and is scale-invariant to the depth model's
 arbitrary output range. None of that means it works.
 
@@ -419,7 +419,56 @@ surface that is not floor looks exactly like floor to this analysis.
 False drop-off alerts are the worst failure mode this system has. Someone stops
 or stumbles for nothing, and then stops trusting the one warning that matters.
 
-Two fixes went in, and one problem remains open:
+Three fixes went in, and one problem remains open:
+
+**Fixed — a desk is not a worse floor, it is an equally good plane.**
+
+This turned out not to be a threshold that needed tuning. It was a limit, and
+the limit is visible in one line of algebra. Relative depth gives
+
+```
+observed(y) = s · (1 / d(y)) + t          # s, t unknown: the model has no units
+1 / d(y)    = tan(depression) / h         # a horizontal plane at height h
+
+⇒  observed(y) = (s / h) · tan(depression) + t
+```
+
+The fit measures `s / h`. Two unknowns, one equation, so **h cannot be
+recovered from the plane at all**: halve the surface height, halve the depth
+model's scale, and the depth maps are byte-identical. The scale invariance that
+makes this analysis safe on an unknown depth model is exactly what makes it
+blind to which plane it is looking at.
+
+Measured, against synthetic ground truth:
+
+| surface | fit_quality | verdict |
+|---|---:|---|
+| floor, 1.2 m below camera | **1.0000** | flat |
+| desk, 0.45 m below camera | **1.0000** | flat |
+| desk, 0.45 m, 4× depth scale | **1.0000** | flat |
+
+No threshold separates those, at any quality. So the scale now comes from
+outside the depth map, from something this project already computes: the
+geometric estimator's metres to a detected object standing on the ground. One
+such distance pins `s`, and the surface height follows —
+
+```
+s = (anchor_depth − intercept) × anchor_distance
+h = s / slope
+```
+
+— after which a desk at 0.45 m and a floor at 1.2 m are trivially different
+numbers. `trustworthy` now requires both that the near field is flat *and*
+that it sits about where the floor should be. With no detection to anchor
+against, there is no metric scale, and `trustworthy` is False. Unknown does
+not read as floor.
+
+The band is 0.78–1.35 × the configured mount height, and it is set by which
+error is cheaper rather than centred on the truth. A rejected floor is
+silence, which is what this tier does today anyway. An accepted desk is a
+confident warning about a step that is not there. So the band is tightened
+until the cheap mistake is the common one — and a phone carried much lower
+than configured is a known, deliberate false negative rather than a guess.
 
 **Fixed — fake confirmation.** A ground reading stays valid for ~1.2 s while
 depth runs at ~2 Hz, so the same measurement was re-injected as a detection on
