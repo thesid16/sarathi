@@ -332,15 +332,52 @@ def test_unregistered_adapter_error_lists_what_is_registered(tmp_path):
         registry.load("test-detector")
 
 
-def test_engine_with_no_matching_weights_fails_before_the_adapter_lookup(tmp_path):
-    """The more useful of the two errors wins: missing weights, not missing adapter."""
+def test_an_unsupported_engine_is_reported_as_such_not_as_missing_weights(tmp_path):
+    """The more useful of the two errors wins, and it is the engine.
+
+    Declaring runtime: tensorrt with only onnx weights is two problems at once.
+    Complaining about missing tensorrt weights sends the reader off to produce
+    a file that still would not load, because no tensorrt adapter exists.
+    Naming the unsupported engine - and listing the supported ones - points at
+    the actual fix.
+    """
     manifests, weights = tmp_path / "m", tmp_path / "w"
     weights.mkdir()
     (weights / "test.onnx").write_bytes(b"x")
     write_manifest(manifests, {**VALID, "runtime": {"prototype": "tensorrt"}})
     registry = ModelRegistry(manifests, weights)
+    with pytest.raises(ManifestError, match="no adapter for task 'detection'"):
+        registry.load("test-detector")
+
+
+def test_a_supported_engine_with_no_matching_weights_says_so(tmp_path):
+    """The other half: engine is fine, the weights format is missing."""
+    manifests, weights = tmp_path / "m2", tmp_path / "w2"
+    weights.mkdir()
+    write_manifest(manifests, {
+        **VALID, "runtime": {"prototype": "onnxruntime"}, "files": {"tflite": "x.tflite"},
+    })
+    registry = ModelRegistry(manifests, weights)
     with pytest.raises(ManifestError, match="no weights for runtime 'prototype'"):
         registry.load("test-detector")
+
+
+def test_vendored_weights_need_no_file(tmp_path):
+    """RapidOCR and ML Kit resolve their own models; the manifest exists only
+    so their licence is audited alongside everything else."""
+    manifests, weights = tmp_path / "m3", tmp_path / "w3"
+    weights.mkdir()
+    write_manifest(manifests, {
+        "id": "vendored-ocr", "task": "ocr", "license": "Apache-2.0",
+        "distribution": "bundled", "vendored_weights": True,
+        "runtime": {"prototype": "fake-ocr"},
+    })
+    registry = ModelRegistry(manifests, weights)
+    manifest = registry.get("vendored-ocr")
+    assert manifest.vendored_weights
+    # No files block at all, and parsing still succeeds.
+    with pytest.raises(ManifestError, match="no adapter for task 'ocr'"):
+        registry.load("vendored-ocr")
 
 
 def test_adapter_override_restores_the_previous_adapter():
