@@ -1,5 +1,11 @@
 """Runtime: when work happens, and when it deliberately does not."""
 
+from .pipeline import (
+    LabelBridge,
+    Pipeline,
+    PipelineConfig,
+    PipelineResult,
+)
 from .scheduler import (
     Activity,
     Decision,
@@ -15,6 +21,10 @@ from .scheduler import (
 
 __all__ = [
     "Activity",
+    "LabelBridge",
+    "Pipeline",
+    "PipelineConfig",
+    "PipelineResult",
     "Decision",
     "MacThermalReader",
     "MotionGate",

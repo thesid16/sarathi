@@ -1,0 +1,81 @@
+# COCO class names -> Sarathi taxonomy names.
+#
+# Needed because an off-the-shelf detector speaks COCO and the guidance layer
+# reasons in Sarathi classes, which is where hazard priors and size priors
+# live. Without this, every detection would fall through to LOW hazard and the
+# system would announce nothing.
+#
+# This mapping is a bridge, not the destination. Once the fine-tuned model
+# ships it emits Sarathi classes directly and this file only matters for
+# running stock COCO checkpoints as a baseline.
+#
+# Anything not listed here keeps its COCO name and gets LOW hazard - context
+# only, never announced unprompted. That is the right default: a detector
+# confidently reporting "broccoli" should not be able to interrupt someone
+# crossing a road.
+
+map:
+  # -- people and animals --------------------------------------------------
+  person: person
+  cat: cat
+  dog: dog
+  cow: cow
+
+  # -- vehicles ------------------------------------------------------------
+  bicycle: bicycle
+  car: car
+  motorcycle: motorcycle
+  bus: bus
+  truck: truck
+
+  # -- street furniture ----------------------------------------------------
+  fire hydrant: fire_hydrant
+  stop sign: stop_sign
+  bench: bench
+  potted plant: planter
+
+  # -- indoor and furniture ------------------------------------------------
+  chair: chair
+  couch: sofa
+  bed: bed
+  dining table: table
+  toilet: toilet
+  sink: sink
+
+  # -- everyday objects ----------------------------------------------------
+  bottle: bottle
+  cup: cup
+  spoon: spoon
+  book: book
+  cell phone: phone
+  backpack: bag
+  handbag: bag
+  suitcase: bag
+
+# Classes COCO has that Sarathi deliberately does not take, and why. Recorded
+# so the gaps are visible rather than looking like oversights.
+unmapped:
+  traffic light: >
+    COCO does not distinguish red from green, and for a pedestrian the state is
+    the entire content of the signal. Mapping it to either would be worse than
+    not mapping it. The fine-tuned model gets traffic_light_red and
+    traffic_light_green as separate classes from WOTR, which has ~5,000
+    instances of each - so this gap closes with the stock checkpoint, not with
+    the taxonomy.
+
+  train: "Not a pedestrian-range hazard in the situations this targets."
+  airplane: "Self-evidently."
+  boat: "Out of scope."
+
+  horse, sheep, elephant, bear, zebra, giraffe, bird: >
+    Present in COCO because it is a general benchmark. Only cow and dog matter
+    for an Indian footpath, and both are mapped.
+
+  tv, laptop, mouse, keyboard, remote, microwave, oven, toaster, refrigerator: >
+    Indoor appliances. They belong in the on-request "what is on the table"
+    path rather than the walking loop, and the taxonomy covers that ground with
+    its own classes rather than COCO's.
+
+  food and sports classes: >
+    banana, apple, pizza, frisbee, skis, and the rest. No navigation value.
+    They fall through to LOW hazard and stay silent, which is correct.

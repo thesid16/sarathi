@@ -190,6 +190,27 @@ def estimate_distance(
     ground = _sane(ground)
     size = _sane(size)
 
+    # A truncated box has its base below the visible frame, so the object must
+    # be NEARER than the closest ground point the camera can see. That is a
+    # hard geometric bound, and a size prior on a partly visible object
+    # routinely violates it: a person seen from the shoulders up "measures"
+    # further away than the camera can see the floor at all.
+    #
+    # Getting this wrong is not a rounding error. It systematically pushes the
+    # nearest objects - the ones already too close to fully fit in frame -
+    # further away, which is exactly backwards for a collision warning.
+    bounded = False
+    if truncated and prior.grounded and size is not None:
+        limit = _sane(camera.ground_distance(max(1.0, frame_h - 1)))
+        if limit is not None and size > limit:
+            size = limit
+            bounded = True
+
+    if bounded:
+        # Report it as a bound, not a measurement, and say we are unsure -
+        # the true distance is somewhere between zero and this.
+        return DistanceEstimate(size, "bounded", uncertainty=0.6)
+
     if ground is not None and size is not None:
         # Agreement is evidence both assumptions hold. Disagreement usually
         # means the object is not resting where it appears to - propped up,

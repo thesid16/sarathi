@@ -26,6 +26,9 @@ runtime:
 files:
   onnx:
     path: yolo11n-320.onnx
+    sha256: 2f383662ba435b9c9a2531fd4157b62aa56b12da7e99ee1bae3c8aebab3a044d
+    size_bytes: 10575771
+    url: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt
   # tflite entry is added by the export step in training/export/.
 
 input:
@@ -50,7 +53,8 @@ output:
 delegates: [gpu, xnnpack]
 
 notes: >
-  Preprocessing recorded from the Ultralytics default pipeline. Confirm against
-  the exported graph's actual input signature before trusting benchmark
-  numbers - an export at a different imgsz silently changes the shape while the
-  manifest keeps claiming 320.
+  Exported with ultralytics 8.4.117: YOLO("yolo11n.pt").export(format="onnx",
+  imgsz=320, opset=13, dynamic=False). Graph input verified as [1,3,320,320],
+  output [1,84,2100]. The url field points at the source .pt, not the onnx -
+  the onnx is a build artefact, reproducible from that checkpoint by the
+  command above.

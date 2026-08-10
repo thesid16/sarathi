@@ -179,6 +179,78 @@ def cmd_gate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    """The real pipeline: camera in, guidance out."""
+    from .guidance.speech import EarconPlayer, MacSpeaker, NullSpeaker, VoiceOutput
+    from .runtime import Pipeline, PipelineConfig, SchedulerConfig
+
+    cfg = load_config(args.config, args.set)
+    spec = args.source if args.source is not None else cfg.get("source")
+
+    speaker = NullSpeaker()
+    if args.speak:
+        try:
+            speaker = MacSpeaker()
+        except RuntimeError as exc:
+            log.warning("%s - running silently", exc)
+
+    pipeline = Pipeline(
+        PipelineConfig(
+            detector=args.detector,
+            lang=args.lang,
+            speak=args.speak,
+            camera_height_m=args.camera_height,
+            camera_pitch_deg=args.camera_pitch,
+            scheduler=SchedulerConfig(max_inference_hz=args.max_hz),
+        ),
+        voice=VoiceOutput(speaker, EarconPlayer(enabled=args.speak)),
+    )
+
+    try:
+        cam = LatestFrame(create_source(spec), reconnect=True).start()
+    except SourceError as exc:
+        log.error("%s", exc)
+        return 2
+
+    print(f"running {spec!r} for {args.seconds:.0f}s   detector={args.detector}   lang={args.lang}\n")
+    deadline = time.monotonic() + args.seconds
+    seen: dict[str, int] = {}
+    said = 0
+    try:
+        while time.monotonic() < deadline:
+            frame = cam.get(timeout=2.0)
+            if frame is None:
+                if cam.ended:
+                    break
+                continue
+            result = pipeline.process(frame)
+            for det in result.detections:
+                seen[det.label] = seen.get(det.label, 0) + 1
+            if result.utterance is not None:
+                said += 1
+                elapsed = args.seconds - (deadline - time.monotonic())
+                mark = "  " if result.spoke or not args.speak else "x "
+                print(f"{mark}{elapsed:5.1f}s  {result.utterance.urgency.name:<7} "
+                      f"{result.utterance.text}")
+    except KeyboardInterrupt:
+        print()
+    finally:
+        cam.stop()
+        pipeline.close()
+
+    print()
+    print(pipeline.scheduler.stats.summary())
+    if seen:
+        top = sorted(seen.items(), key=lambda kv: -kv[1])[:12]
+        print("\ndetections by class:")
+        for label, count in top:
+            hazard = pipeline.bridge._hazards.get(label)
+            tag = hazard.name.lower() if hazard else "unmapped"
+            print(f"    {label:<16} {count:>5}   {tag}")
+    print(f"\nutterances: {said}")
+    return 0
+
+
 def cmd_config(args: argparse.Namespace) -> int:
     print(load_config(args.config, args.set))
     return 0
@@ -383,6 +455,17 @@ def build_parser() -> argparse.ArgumentParser:
     models = sub.add_parser("models", help="list known models and whether weights are present")
     models.add_argument("--task", choices=["detection", "depth", "ocr", "vlm"])
     models.set_defaults(func=cmd_models)
+
+    run = sub.add_parser("run", help="the real pipeline: camera in, guidance out")
+    run.add_argument("--source", "-s", help="index, URL or file path")
+    run.add_argument("--seconds", type=float, default=20.0)
+    run.add_argument("--detector", default="yolo11n-coco-320")
+    run.add_argument("--lang", default="en", choices=["en", "hi"])
+    run.add_argument("--speak", action="store_true", help="actually talk")
+    run.add_argument("--max-hz", type=float, default=8.0)
+    run.add_argument("--camera-height", type=float, default=1.20, metavar="M")
+    run.add_argument("--camera-pitch", type=float, default=0.0, metavar="DEG")
+    run.set_defaults(func=cmd_run)
 
     gate = sub.add_parser("gate", help="measure how much inference the scheduler avoids")
     gate.add_argument("--source", "-s", help="index, URL or file path")

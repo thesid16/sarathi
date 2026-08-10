@@ -362,6 +362,56 @@ latency measurement depends on.
 
 ---
 
+## Known limitations
+
+Found by running the real pipeline on real footage, not predicted:
+
+### Occlusion silently breaks the ground-plane estimate
+
+The ground-plane estimator assumes the bottom of a bounding box is where the
+object meets the floor. Measured against a live webcam, a **seated** person
+roughly 0.7 m away was reported at a very stable 2.78 m — stable to ±0.02 m
+across 36 consecutive frames, and confidently wrong.
+
+The cause is that the person's lower body was behind a desk. The box bottom was
+the desk edge, not their feet, so the geometry answered the question it was
+asked correctly and the question was wrong.
+
+Why the existing safeguards did not catch it:
+
+- The **truncation bound** only fires when the box touches the frame edge. Here
+  the box ended well inside the frame, so nothing looked unusual.
+- The **cross-check against the size prior** did not disagree either: a seated
+  person's visible height also reads as "further away", so both estimators were
+  wrong in the same direction and their agreement was taken as confidence. The
+  first few frames were even reported as `fused`, the highest-confidence source.
+
+This matters beyond desks. On an Indian footpath the common case is a person
+partly behind a parked scooter, a bollard behind a stall, a kerb behind a
+puddle. All of them present a box bottom that is not the ground contact.
+
+Mitigations, in order of how much they would actually help:
+
+1. **The depth tier.** This is precisely what Tier 2 exists for — a monocular
+   depth reading at the box location does not care what the box bottom means.
+2. **Treat agreement between two estimators sharing an assumption as weaker
+   evidence than it currently is.** Both estimators depend on seeing the whole
+   object; when both are wrong they are wrong together.
+3. **Ground-plane consistency across a track.** A stationary object whose
+   apparent ground contact never changes while the user walks toward it is not
+   resting where it appears to.
+
+Recorded rather than fixed, because the honest fix is the depth tier and that
+is a separate piece of work.
+
+### Synthetic footage cannot validate a detector
+
+A rendered scene of a person-shaped figure approaching was detected as a
+"traffic light" four times and a person zero times. Synthetic video is fine for
+testing the **scheduler** — frame timing and gating are real regardless of
+content — and useless for testing **perception**. The evaluation walk must be
+real footage.
+
 ## Open design questions
 
 Recorded here rather than silently assumed:

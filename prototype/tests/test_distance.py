@@ -135,9 +135,14 @@ def test_an_implausible_size_estimate_is_dropped_before_fusion():
 
 
 def test_a_box_running_off_the_bottom_of_frame_ignores_the_ground_plane():
-    """The object continues below the image, so its floor contact is unknown."""
+    """The object continues below the image, so its floor contact is unknown.
+
+    The estimate comes from the size prior instead - capped by the truncation
+    bound when the prior would otherwise exceed what the camera can see.
+    """
     est = estimate_distance(det(600, 300, 700, 720, "person"), CAM, PRIORS)
-    assert est.source == "size"
+    assert est.source in {"size", "bounded"}
+    assert est.source not in {"ground", "fused"}
 
 
 def test_elevated_objects_never_use_the_ground_plane():
@@ -183,7 +188,7 @@ def test_annotate_fills_distance_bearing_and_source():
     for d in dets:
         assert d.distance_m is not None
         assert d.bearing_deg is not None
-        assert d.distance_source in {"ground", "size", "fused"}
+        assert d.distance_source in {"ground", "size", "fused", "bounded"}
     assert dets[1].bearing_deg < 0  # chair is left of centre
 
 
@@ -199,3 +204,38 @@ def test_priors_file_loads_and_covers_the_common_classes():
     assert PRIORS.get("traffic_light_red").grounded is False
     assert PRIORS.get("open_manhole").h_m is None
     assert PRIORS.get("not_a_real_class").h_m is None
+
+
+# -- truncation bound --------------------------------------------------------
+
+
+def test_a_truncated_box_cannot_be_reported_further_than_the_camera_can_see():
+    """The base is below the frame, so the object is nearer than the nearest
+    visible ground point. A size prior on a partly visible object violates that
+    routinely - and errs in the dangerous direction, pushing the very closest
+    objects further away."""
+    limit = CAM.ground_distance(719)
+    # A person visible from the shoulders up: 420 px implies 3.87 m by size.
+    est = estimate_distance(det(500, 300, 780, 720, "person"), CAM, PRIORS, frame_height=720)
+    assert est.source == "bounded"
+    assert est.distance_m == pytest.approx(limit, abs=0.01)
+    assert est.distance_m < 3.87  # what the unbounded size prior would have said
+
+
+def test_the_bound_is_not_applied_when_the_size_estimate_already_respects_it():
+    """A large truncated object is genuinely near; leave its estimate alone."""
+    est = estimate_distance(det(400, 120, 900, 720, "person"), CAM, PRIORS, frame_height=720)
+    assert est.source == "size"
+    assert est.distance_m < CAM.ground_distance(719)
+
+
+def test_a_bounded_estimate_reports_low_confidence():
+    """It is an upper bound, not a measurement - the phrasing layer should hedge."""
+    est = estimate_distance(det(500, 300, 780, 720, "person"), CAM, PRIORS, frame_height=720)
+    assert est.uncertainty > 0.25
+
+
+def test_elevated_objects_are_not_subject_to_the_ground_bound():
+    """A hanging sign clipped by the frame edge is not on the floor."""
+    est = estimate_distance(det(500, 300, 560, 720, "sign_board"), CAM, PRIORS, frame_height=720)
+    assert est.source == "size"
