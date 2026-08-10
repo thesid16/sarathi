@@ -1,0 +1,115 @@
+# Real-world size priors, used to estimate distance when the ground-plane
+# method cannot be trusted.
+#
+# `h_m` is a typical standing height in metres - a prior, not a measurement.
+# It exists to answer "roughly how far?" well enough to say "about two metres",
+# which is the precision a spoken warning actually needs. Anything finer would
+# be false confidence.
+#
+# `grounded: false` marks objects that do not rest on the walking surface.
+# The ground-plane estimator assumes the bottom of the box touches the floor;
+# for a traffic light or a hanging sign that assumption puts the object
+# absurdly far away, so those use the size prior alone.
+#
+# `spread` is the rough fractional variation in real height within the class.
+# A person is fairly predictable; a "bag" is not. Classes with a wide spread
+# get their size-prior estimate down-weighted during fusion.
+
+defaults:
+  spread: 0.30
+
+priors:
+  # -- people and animals: the most reliable priors we have ----------------
+  person:            {h_m: 1.65, spread: 0.12}
+  child:             {h_m: 1.10, spread: 0.25}
+  wheelchair_user:   {h_m: 1.30, spread: 0.15}
+  dog:               {h_m: 0.55, spread: 0.35}
+  cow:               {h_m: 1.40, spread: 0.20}
+  cat:               {h_m: 0.28, spread: 0.25}
+
+  # -- vehicles ------------------------------------------------------------
+  car:               {h_m: 1.50, spread: 0.15}
+  bus:               {h_m: 3.10, spread: 0.20}
+  truck:             {h_m: 3.20, spread: 0.30}
+  motorcycle:        {h_m: 1.10, spread: 0.15}
+  bicycle:           {h_m: 1.05, spread: 0.15}
+  auto_rickshaw:     {h_m: 1.80, spread: 0.10}
+  cycle_rickshaw:    {h_m: 1.70, spread: 0.15}
+  handcart:          {h_m: 1.20, spread: 0.30}
+  parked_bicycle:    {h_m: 1.05, spread: 0.15}
+  parked_scooter:    {h_m: 1.10, spread: 0.15}
+
+  # -- standing obstacles --------------------------------------------------
+  pole:              {h_m: 4.00, spread: 0.50}
+  bollard:           {h_m: 0.90, spread: 0.20}
+  sign_post:         {h_m: 2.20, spread: 0.30}
+  tree:              {h_m: 6.00, spread: 0.60}
+  barrier:           {h_m: 1.10, spread: 0.30}
+  traffic_cone:      {h_m: 0.60, spread: 0.20}
+  warning_column:    {h_m: 0.90, spread: 0.25}
+  bin:               {h_m: 1.00, spread: 0.30}
+  bench:             {h_m: 0.85, spread: 0.15}
+  planter:           {h_m: 0.70, spread: 0.40}
+  fire_hydrant:      {h_m: 0.80, spread: 0.20}
+  construction:      {h_m: 2.00, spread: 0.60}
+  scaffolding:       {h_m: 3.00, spread: 0.60}
+
+  # -- elevated: ground-plane estimate does not apply ----------------------
+  traffic_light_red:   {h_m: 0.90, spread: 0.25, grounded: false}
+  traffic_light_green: {h_m: 0.90, spread: 0.25, grounded: false}
+  pedestrian_signal:   {h_m: 0.50, spread: 0.25, grounded: false}
+  stop_sign:           {h_m: 0.75, spread: 0.15, grounded: false}
+  sign_board:          {h_m: 0.80, spread: 0.50, grounded: false}
+  overhead_wire:       {h_m: 0.05, spread: 0.80, grounded: false}
+
+  # -- indoor --------------------------------------------------------------
+  door:              {h_m: 2.05, spread: 0.10}
+  glass_door:        {h_m: 2.05, spread: 0.10}
+  doorway:           {h_m: 2.05, spread: 0.10}
+  door_handle:       {h_m: 0.12, spread: 0.30, grounded: false}
+  handrail:          {h_m: 0.05, spread: 0.40, grounded: false}
+  lift:              {h_m: 2.10, spread: 0.15}
+  escalator:         {h_m: 2.50, spread: 0.30}
+  window:            {h_m: 1.30, spread: 0.35, grounded: false}
+  toilet:            {h_m: 0.75, spread: 0.12}
+  sink:              {h_m: 0.85, spread: 0.15}
+  tap:               {h_m: 0.20, spread: 0.30, grounded: false}
+  light_switch:      {h_m: 0.09, spread: 0.25, grounded: false}
+
+  # -- furniture -----------------------------------------------------------
+  chair:             {h_m: 0.90, spread: 0.15}
+  table:             {h_m: 0.75, spread: 0.12}
+  desk:              {h_m: 0.75, spread: 0.12}
+  sofa:              {h_m: 0.80, spread: 0.15}
+  bed:               {h_m: 0.60, spread: 0.20}
+  shelf:             {h_m: 1.80, spread: 0.40}
+  counter:           {h_m: 0.95, spread: 0.15}
+
+  # -- small objects: prior is weak, and they are on a surface, not the floor
+  cup:               {h_m: 0.10, spread: 0.25, grounded: false}
+  bottle:            {h_m: 0.25, spread: 0.30, grounded: false}
+  plate:             {h_m: 0.03, spread: 0.30, grounded: false}
+  spoon:             {h_m: 0.02, spread: 0.30, grounded: false}
+  phone:             {h_m: 0.15, spread: 0.15, grounded: false}
+  bag:               {h_m: 0.40, spread: 0.50, grounded: false}
+  keys:              {h_m: 0.06, spread: 0.40, grounded: false}
+  wallet:            {h_m: 0.10, spread: 0.25, grounded: false}
+  book:              {h_m: 0.22, spread: 0.30, grounded: false}
+
+  # Ground-surface classes have no meaningful height. They are located by
+  # where they meet the floor, which the ground-plane estimator handles well,
+  # so they get no size prior at all.
+  open_manhole:      {grounded: true}
+  manhole_cover:     {grounded: true}
+  pothole:           {grounded: true}
+  puddle:            {grounded: true}
+  drain_grate:       {grounded: true}
+  crosswalk:         {grounded: true}
+  tactile_paving:    {grounded: true}
+  kerb:              {grounded: true}
+  step_up:           {grounded: true}
+  step_down:         {grounded: true}
+  stairs_up:         {grounded: true}
+  stairs_down:       {grounded: true}
+  ramp:              {grounded: true}
+  wall:              {grounded: true}
