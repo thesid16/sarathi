@@ -110,13 +110,17 @@ class ModelRegistry:
                 "downstream users would restrict everyone who builds on this."
             )
 
-        file_spec = manifest.file_for(self.runtime)
-        if verify:
-            file_spec.verify(self.weights_dir)
-
         engine = manifest.runtime.get(self.runtime, self.runtime)
         factory = get_adapter(manifest.task, engine)
-        weights = file_spec.resolve(self.weights_dir)
+
+        if manifest.vendored_weights:
+            # Nothing to locate or checksum - the library owns its weights.
+            weights = self.weights_dir
+        else:
+            file_spec = manifest.file_for(self.runtime)
+            if verify:
+                file_spec.verify(self.weights_dir)
+            weights = file_spec.resolve(self.weights_dir)
 
         # Labels are resolved here rather than in the adapter, so adapters
         # never touch the filesystem and stay trivially testable.

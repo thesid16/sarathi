@@ -1,0 +1,59 @@
+# Gemma 4 E2B for on-demand scene description.
+#
+# CORRECTION to an earlier decision in this project. Gemma 3n shipped under the
+# Gemma Terms of Use, which attach a use-restriction policy that must be passed
+# downstream. AGPL-3.0 cannot absorb additional restrictions, so bundling those
+# weights would have muddied Sarathi's own licence, and this manifest said so.
+#
+# Gemma 4 (released 2 April 2026) is **Apache 2.0**. Verified against Google's
+# own model card and the Hugging Face release. That constraint is simply gone -
+# it can be bundled and redistributed like any other permissive model, and the
+# "Gemma terms" item raised for legal review is closed.
+#
+# distribution stays `user_download`, but now for a completely different and
+# much more ordinary reason: SIZE. E2B is 2.3B effective parameters (5.1B with
+# embeddings), which is a multi-gigabyte download even quantized. Much of the
+# target audience is on 4 GB phones and metered connections; forcing that on
+# everyone would make the app uninstallable for the people who need it most.
+# A licensing blocker became a product decision, which is a much better place
+# to be.
+
+id: gemma-4-e2b-vlm
+task: vlm
+family: gemma-4
+version: 4.0.0
+
+license: Apache-2.0
+distribution: user_download
+source_url: https://huggingface.co/google/gemma-4-E2B-it
+attribution: "Gemma 4 by Google DeepMind, Apache-2.0"
+
+runtime:
+  android: litert
+  prototype: onnxruntime
+
+files:
+  litertlm:
+    path: gemma-4-E2B-it.litertlm
+  onnx:
+    path: gemma-4-E2B-it.onnx
+
+requirements:
+  # E2B is reported to run on a Raspberry Pi 5 with 8 GB. The Pixel 8a has
+  # 8 GB, so it is a viable development target - and a bad default, because
+  # most of the audience does not have 8 GB.
+  min_ram_gb: 6
+
+notes: >
+  Multimodal: image, audio and video input on the E-series, 128k context.
+  Only image input is used here.
+
+  E2B and E4B use Per-Layer Embeddings, so active compute is well below the
+  total parameter count - which is the whole reason an E-series model is
+  plausible on a phone at all.
+
+  NOT YET BENCHMARKED. No latency, memory or quality number for this model
+  appears anywhere in this project, and none should until it has been run on a
+  Pixel 8a. The scene-description slot is defined by the SceneDescriber
+  interface, so this drops in beside a smaller default without any code change
+  - which is exactly what the manifest system exists for.

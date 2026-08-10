@@ -22,12 +22,13 @@ Three rules follow, and the registry enforces them in code:
 | **Apache-2.0 / MIT / BSD models: bundle freely** | One-way compatible with AGPL-3.0. Safest and most reusable. Preferred where competitive. |
 | **AGPL models: usable, bundleable** | Same licence as the project. No conflict. |
 | **Non-commercial models (CC-BY-NC): excluded entirely** | These would make Sarathi non-free and block the students, NGOs and researchers this exists for. A downstream accessibility startup could not ship it. Not worth the accuracy. |
-| **Use-restricted models (Gemma): user-downloaded, never bundled** | The Gemma Terms add restrictions AGPL-3.0 cannot absorb, and they must pass downstream. Shipping them inside the repo would muddy our own licence. As an optional pack the user fetches, the terms stay between the user and Google. |
+| **Use-restricted models: user-downloaded, never bundled** | Terms that add restrictions AGPL-3.0 cannot absorb would muddy our own licence. As an optional pack the user fetches, the terms stay between the user and the publisher. |
+| **Very large models: user-downloaded regardless of licence** | A multi-gigabyte model in the APK makes the app uninstallable for users on 4 GB phones and metered connections — which is much of the audience. Permissive licensing does not make a 2 GB download acceptable. |
 
-That last row is the interesting one, and it happens to be free: the model-pack
-architecture was already required so a future Gemma could be added without an
-app update. The licensing constraint and the product requirement want the same
-design.
+Those last two rows used to be one row. Gemma was the motivating example for
+the first, because Gemma 3n's terms carried use restrictions; **Gemma 4 is
+Apache-2.0** and moved to the second. The model-pack architecture serves both,
+which is why the conclusion did not change when the reason did — see §5.
 
 ### What the registry enforces
 
@@ -108,14 +109,41 @@ dependency is swappable rather than structural.
 |---|---|---|---|
 | **SmolVLM2-500M** | ~0.5 B | Apache-2.0 | Bundled — default. Small enough to ship; genuinely usable for "what's in front of me". |
 | **SmolVLM2-256M** | ~0.26 B | Apache-2.0 | Bundled — low-RAM fallback. |
-| **Gemma 3n E2B** | ~2 B eff. | Gemma Terms of Use | **User download.** Your target model. Fits the Pixel 8a's 8 GB. |
+| **Gemma 4 E2B** | 2.3 B eff. (5.1 B w/ embeddings) | **Apache-2.0** | **User download — for size, not licence.** Multimodal, 128k context. Reported to run on a Raspberry Pi 5 with 8 GB, so viable on a Pixel 8a. |
+| **Gemma 4 E4B** | 4.5 B eff. (8 B w/ embeddings) | **Apache-2.0** | User download. Only for high-RAM devices. |
 | **Moondream 2** | ~1.9 B | Apache-2.0 | User download. Strong at exactly this task. |
 | **Qwen2.5-VL 3B** | ~3 B | Apache-2.0 *(verify)* | User download. Top of the RAM budget. |
 
-The Pixel 8a's **8 GB of RAM makes Gemma 3n E2B genuinely viable** as your dev
-target — but it will not be viable on the 4 GB phones much of the audience
-actually owns. Hence: SmolVLM bundled as the default that always works, larger
-models offered as opt-in downloads gated on available RAM.
+### Correction: Gemma's licence changed, and it changes the design
+
+This document previously recorded Gemma as commercially usable but **not**
+OSI-open, carrying a use-restriction policy that AGPL-3.0 cannot absorb — which
+made bundling it impossible and put an item on the legal review list.
+
+**Gemma 4, released 2 April 2026, is Apache-2.0.** Verified against
+[Google's model card](https://ai.google.dev/gemma/docs/core/model_card_4) and
+the [Hugging Face release](https://huggingface.co/blog/gemma4). The constraint
+is gone, and the legal item is closed.
+
+The *conclusion* is unchanged — Gemma stays a user download — but the reason is
+now completely different, and the difference matters:
+
+| | Before (Gemma 3n) | Now (Gemma 4) |
+|---|---|---|
+| Why not bundled | **Licence.** Use restrictions AGPL cannot pass on. | **Size.** 2.3 B effective params is a multi-gigabyte download. |
+| Blocking? | Yes — needed legal sign-off | No — an ordinary product decision |
+| Redistributable | No | Yes |
+
+The Pixel 8a's 8 GB makes Gemma 4 E2B genuinely viable as your development
+target. It will not be viable on the 4 GB phones much of the audience actually
+owns, and forcing a multi-gigabyte download on everyone would make the app
+uninstallable for the people who need it most. Hence: a small VLM bundled as
+the default that always works, larger models offered as opt-in packs gated on
+available RAM.
+
+**No number is claimed for Gemma 4 anywhere in this project.** It has not been
+run on a phone. Latency, memory and description quality all stay blank until it
+has.
 
 ## 6. Datasets
 

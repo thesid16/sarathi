@@ -282,9 +282,11 @@ under the same licence.
 Model weights carry their own separate terms. Non-commercial-licensed models
 (e.g. Depth Anything V2 Base/Large, CC-BY-NC) are **excluded on purpose**: they
 would restrict the students, NGOs and researchers this project exists for.
-Models whose licences add use restrictions — Gemma, for instance — are supported
-as optional user-downloaded model packs rather than bundled, so redistribution
-terms stay clean. See [`docs/02-model-selection.md`](docs/02-model-selection.md).
+Large models — Gemma 4 E2B, for instance — are offered as optional
+user-downloaded packs rather than bundled, because a multi-gigabyte download
+would make the app uninstallable for users on 4 GB phones and metered
+connections. That is a size decision, not a licensing one: Gemma 4 is
+Apache-2.0. See [`docs/02-model-selection.md`](docs/02-model-selection.md).
 
 ## Acknowledgements
 

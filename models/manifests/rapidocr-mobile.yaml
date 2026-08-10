@@ -1,0 +1,32 @@
+# RapidOCR - on-demand text reading.
+#
+# PaddleOCR detection and recognition models converted to ONNX, Apache-2.0.
+# No `files` entry: RapidOCR bundles and resolves its own weights. The manifest
+# exists anyway so this model appears in `sarathi licenses` alongside every
+# other one - a component whose licence is not audited because it happens to
+# vendor its own weights is exactly the kind of thing that gets missed.
+
+id: rapidocr-mobile
+task: ocr
+family: rapidocr
+version: 1.0.0
+
+license: Apache-2.0
+distribution: bundled
+source_url: https://github.com/RapidAI/RapidOCR
+attribution: "RapidOCR (PaddleOCR models converted to ONNX), Apache-2.0"
+
+vendored_weights: true
+
+runtime:
+  prototype: rapidocr
+  android: mlkit
+
+
+notes: >
+  Android uses ML Kit Text Recognition v2 instead, behind the same TextReader
+  interface. ML Kit reads Devanagari, which matters here, but ties the app to
+  Google Play Services - so RapidOCR stays the fallback for AOSP and
+  de-Googled devices rather than the dependency being structural.
+
+  NOT YET BENCHMARKED on a phone. Latency here is desktop-only.

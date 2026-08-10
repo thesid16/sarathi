@@ -268,6 +268,9 @@ class ModelManifest:
     attribution: str | None = None
     notes: str | None = None
     perf: dict[str, Any] = field(default_factory=dict)
+    #: True when the runtime library supplies its own weights, so there is no
+    #: file for the registry to locate or checksum.
+    vendored_weights: bool = False
     source_path: Path | None = None
 
     # -- construction ------------------------------------------------------
@@ -284,7 +287,15 @@ class ModelManifest:
             Distribution, str(_require(data, "distribution", where)).lower(), where, "distribution"
         )
 
-        raw_files = _require(data, "files", where)
+        # Some components resolve their own weights internally - RapidOCR
+        # bundles its models, ML Kit fetches them through Play Services. They
+        # still need a manifest so their licence is audited alongside
+        # everything else; a component whose licence goes unchecked because it
+        # happens to vendor its weights is exactly what gets missed.
+        if bool(data.get("vendored_weights", False)):
+            raw_files = data.get("files") or {"vendored": "."}
+        else:
+            raw_files = _require(data, "files", where)
         if not isinstance(raw_files, dict) or not raw_files:
             raise ManifestError(f"{where}: files must be a non-empty mapping of format -> file")
         files = {
@@ -307,6 +318,8 @@ class ModelManifest:
             if output_spec is None:
                 raise ManifestError(f"{where}: detection models require an `output` section")
 
+        vendored = bool(data.get("vendored_weights", False))
+
         runtime = data.get("runtime", {})
         if not isinstance(runtime, dict):
             raise ManifestError(f"{where}: runtime must be a mapping of platform -> engine")
@@ -327,6 +340,7 @@ class ModelManifest:
             attribution=data.get("attribution"),
             notes=data.get("notes"),
             perf=data.get("perf", {}) or {},
+            vendored_weights=vendored,
             source_path=source_path,
         )
 
