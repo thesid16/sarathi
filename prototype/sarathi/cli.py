@@ -332,6 +332,67 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dataset(args: argparse.Namespace) -> int:
+    """Assemble one training set from every configured source."""
+    import glob
+
+    import yaml as _yaml
+
+    from .datasets import (
+        ReadStats,
+        build_dataset,
+        read_mendeley_stairs,
+        read_voc,
+        write_attribution,
+    )
+    from .taxonomy import Taxonomy
+
+    repo = Path(__file__).resolve().parents[2]
+    data_root = Path(args.data_root).expanduser()
+    configs = [
+        _yaml.safe_load(Path(f).read_text())
+        for f in sorted(glob.glob(str(repo / "training" / "datasets" / "*.yaml")))
+    ]
+    taxonomy = Taxonomy.load()
+
+    samples = []
+    for config in configs:
+        for name, spec in (config.get("sources") or {}).items():
+            root = data_root / spec.get("root", "")
+            if not root.exists():
+                print(f"  {name:<24} SKIP - not present at {root}")
+                continue
+            label_map = spec.get("label_map") or {}
+            stats = ReadStats()
+            fmt = spec.get("format")
+            if fmt == "voc":
+                got = list(read_voc(root, label_map, source=name, stats=stats))
+            elif fmt == "mendeley_stairs":
+                got = list(read_mendeley_stairs(
+                    root, {int(k): v for k, v in label_map.items()},
+                    source=name, stats=stats))
+            else:
+                print(f"  {name:<24} SKIP - unknown format {fmt!r}")
+                continue
+            samples.extend(got)
+            print(f"  {name}")
+            print(stats.summary())
+
+    if not samples:
+        print("\nno samples found - check --data-root")
+        return 1
+
+    out = Path(args.out).expanduser()
+    print(f"\nbuilding -> {out}")
+    stats = build_dataset(samples, out, taxonomy,
+                          val_fraction=args.val_fraction, copy_images=args.copy_images)
+    write_attribution(configs, out / "ATTRIBUTION.md")
+    print()
+    print(stats.report(taxonomy))
+    print(f"\nattribution written to {out / 'ATTRIBUTION.md'}")
+    return 0
+
+
 def cmd_config(args: argparse.Namespace) -> int:
     print(load_config(args.config, args.set))
     return 0
@@ -549,6 +610,14 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--camera-height", type=float, default=1.20, metavar="M")
     run.add_argument("--camera-pitch", type=float, default=0.0, metavar="DEG")
     run.set_defaults(func=cmd_run)
+
+    ds = sub.add_parser("dataset", help="assemble the training set from all sources")
+    ds.add_argument("--data-root", default="~/sarathi", help="where data/raw/ lives")
+    ds.add_argument("--out", default="~/sarathi/data/sarathi77")
+    ds.add_argument("--val-fraction", type=float, default=0.15)
+    ds.add_argument("--copy-images", action="store_true",
+                    help="copy rather than symlink (tens of GB - usually wrong)")
+    ds.set_defaults(func=cmd_dataset)
 
     bench = sub.add_parser("bench", help="replay a clip and score the guidance")
     bench.add_argument("--source", "-s", required=True, help="video file")

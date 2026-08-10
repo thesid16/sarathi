@@ -14,10 +14,11 @@ sources:
 
   # -- Roboflow Universe, CC BY 4.0, verified via the API ------------------
   rf_staircase_avionics:
+    root: data/raw/stairs/rf_staircase_avionics
+    format: voc
     url: https://universe.roboflow.com/avionics/staircase-nmchu
     licence: CC-BY-4.0
     version: 2
-    format: voc
     images: 1451
     attribution: "staircase dataset, avionics workspace, Roboflow Universe, CC BY 4.0"
     label_map:
@@ -30,10 +31,11 @@ sources:
       "2": null
 
   rf_stairs_katti:
+    root: data/raw/stairs/rf_stairs_katti
+    format: voc
     url: https://universe.roboflow.com/katti/stairs-5yily
     licence: CC-BY-4.0
     version: 1
-    format: voc
     images: 516
     attribution: "Stairs dataset, katti workspace, Roboflow Universe, CC BY 4.0"
     label_map:
@@ -43,6 +45,8 @@ sources:
 
   # -- Mendeley Data, CC BY 4.0 --------------------------------------------
   mendeley_stairs_depth:
+    root: data/raw/stairs/mendeley_stairs_depth
+    format: mendeley_stairs
     url: https://data.mendeley.com/datasets/p28ncjnvgk/2
     doi: 10.17632/p28ncjnvgk.2
     licence: CC-BY-4.0
@@ -54,7 +58,7 @@ sources:
     samples: 2996          # 2388 train + 608 val, as RGB/depth/label triples
     resolution: 512x512
     capture: RealSense D435i, Beihang University campus and public gardens
-    format: >
+    annotation_format: >
       Per sample: color_N.jpg (RGB), color_N.png (depth), color_N.txt (labels).
       Each label line is "cls x1 y1 x2 y2" describing one stair EDGE as a line
       segment, not a box: cls 0 = convex, cls 1 = concave.

@@ -21,41 +21,41 @@
 # Worth measuring whether a portrait-aware input crop beats square letterboxing
 # before assuming the standard recipe is right for this product.
 
-name: wotr
-licence: MIT
-attribution: "WOTR dataset, https://github.com/kxzr/WOTR, MIT licence"
-format: voc
-root: data/raw/wotr/WOTR
-images: JPEGImages
-annotations: Annotations
-splits: ImageSets/Main
+sources:
+  wotr:
+    root: data/raw/wotr/WOTR
+    format: voc
+    url: https://github.com/kxzr/WOTR
+    licence: MIT
+    images: 13928
+    attribution: "WOTR dataset, https://github.com/kxzr/WOTR, MIT licence"
 
 # WOTR class -> Sarathi taxonomy class.
 #
 # `null` means the class is deliberately dropped. Mapping honestly beats
 # inventing a class from too few examples, and dropping honestly beats
 # forcing a bad match.
-label_map:
-  person:          person            # 35,245
-  pole:            pole              # 31,144
-  car:             car               # 27,583
-  tree:            tree              # 22,515
-  motorcycle:      motorcycle        # 12,162
-  warning_column:  warning_column    # 10,431
-  crosswalk:       crosswalk         #  8,558
-  bicycle:         bicycle           #  5,995
-  green_light:     traffic_light_green  # 4,965
-  red_light:       traffic_light_red    # 4,961
-  roadblock:       barrier           #  4,402
-  reflective_cone: traffic_cone      #  4,125
-  truck:           truck             #  3,537
-  sign:            sign_board        #  3,360
-  ashcan:          bin               #  2,857
-  blind_road:      tactile_paving    #  2,381 - WOTR's name for tactile paving
-  bus:             bus               #  1,787
-  tricycle:        cycle_rickshaw    #  1,580 - see note below
-  fire_hydrant:    fire_hydrant      #  1,384
-  dog:             dog               #  1,022
+    label_map:
+      person:          person            # 35,245
+      pole:            pole              # 31,144
+      car:             car               # 27,583
+      tree:            tree              # 22,515
+      motorcycle:      motorcycle        # 12,162
+      warning_column:  warning_column    # 10,431
+      crosswalk:       crosswalk         #  8,558
+      bicycle:         bicycle           #  5,995
+      green_light:     traffic_light_green  # 4,965
+      red_light:       traffic_light_red    # 4,961
+      roadblock:       barrier           #  4,402
+      reflective_cone: traffic_cone      #  4,125
+      truck:           truck             #  3,537
+      sign:            sign_board        #  3,360
+      ashcan:          bin               #  2,857
+      blind_road:      tactile_paving    #  2,381 - WOTR's name for tactile paving
+      bus:             bus               #  1,787
+      tricycle:        cycle_rickshaw    #  1,580 - see note below
+      fire_hydrant:    fire_hydrant      #  1,384
+      dog:             dog               #  1,022
 
 notes:
   tricycle: >
