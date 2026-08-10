@@ -22,6 +22,7 @@ caller pass a resolution they may not know.
 from __future__ import annotations
 
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,8 +31,9 @@ import yaml
 from ..guidance.phrasing import Phraser
 from ..guidance.saliency import Ranked, SaliencyConfig, SaliencyEngine
 from ..guidance.speech import NullSpeaker, VoiceOutput
-from ..models import Detector, ModelRegistry
+from ..models import DepthEstimator, Detector, ModelRegistry
 from ..perception.distance import CameraModel, SizePriors, annotate
+from ..perception.ground import GroundReading, ground_profile
 from ..perception.tracking import Track, Tracker
 from ..taxonomy import Taxonomy
 from ..types import Detection, Frame, Hazard, Utterance
@@ -83,6 +85,7 @@ class PipelineResult:
     chosen: Ranked | None = None
     utterance: Utterance | None = None
     spoke: bool = False
+    ground: GroundReading | None = None
     stage_ms: dict[str, float] = field(default_factory=dict)
 
     @property
@@ -93,7 +96,16 @@ class PipelineResult:
 @dataclass
 class PipelineConfig:
     detector: str | None = "yolo11n-coco-320"
+    depth: str | None = None
     lang: str = "en"
+    #: How long a ground reading stays valid. Depth runs at ~2 Hz while
+    #: detection runs at up to 8 Hz, so without this the ground hazard would
+    #: vanish and reappear between depth passes and the tracker would never
+    #: confirm it.
+    ground_validity_s: float = 1.2
+    #: Independent depth passes that must agree before a drop-off is spoken.
+    ground_min_votes: int = 3
+    ground_vote_window_s: float = 4.0
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
     saliency: SaliencyConfig = field(default_factory=SaliencyConfig)
     camera_hfov_deg: float = 66.0
@@ -128,7 +140,18 @@ class Pipeline:
             assert isinstance(model, Detector)
             self.detector = model
 
+        self.depth: DepthEstimator | None = None
+        if self.config.depth:
+            dmodel = self.registry.load(self.config.depth)
+            assert isinstance(dmodel, DepthEstimator)
+            self.depth = dmodel
+
         self._camera: CameraModel | None = None
+        self._ground: GroundReading | None = None
+        self._ground_at: float = -1e9
+        #: (timestamp, distance) from each INDEPENDENT depth pass that saw a
+        #: drop. Not from re-injected cached readings - see _ground_confirmed.
+        self._ground_votes: deque[tuple[float, float]] = deque(maxlen=6)
 
     def camera_for(self, frame: Frame) -> CameraModel:
         """Build the camera model on first use, from the real frame size."""
@@ -169,8 +192,27 @@ class Pipeline:
 
         t0 = time.perf_counter()
         self.bridge.apply(detections)
-        annotate(detections, self.camera_for(frame), self.priors, frame_height=frame.height)
+        camera = self.camera_for(frame)
+        annotate(detections, camera, self.priors, frame_height=frame.height)
         stage["geometry"] = (time.perf_counter() - t0) * 1000.0
+
+        # Tier 2. Runs at its own low rate, and only while moving.
+        if self.depth is not None and self.scheduler.should_run_depth(now):
+            t0 = time.perf_counter()
+            dmap = self.depth.estimate(frame.image)
+            assert self.depth.last_transform is not None
+            reading = ground_profile(dmap, camera, self.depth.last_transform)
+            stage["depth"] = (time.perf_counter() - t0) * 1000.0
+            if reading.trustworthy:
+                self._ground, self._ground_at = reading, now
+                self._vote(reading, now)
+
+        ground = None
+        if self._ground is not None and now - self._ground_at <= self.config.ground_validity_s:
+            ground = self._ground
+            hazard_det = self._ground_hazard(ground, frame, camera)
+            if hazard_det is not None:
+                detections.append(hazard_det)
 
         t0 = time.perf_counter()
         tracks = self.tracker.update(detections, now)
@@ -195,10 +237,87 @@ class Pipeline:
             chosen=chosen,
             utterance=utterance,
             spoke=spoke,
+            ground=ground,
             stage_ms=stage,
         )
+
+    def _vote(self, reading: GroundReading, now: float) -> None:
+        if reading.anomaly == "step_down" and reading.anomaly_distance_m is not None:
+            self._ground_votes.append((now, reading.anomaly_distance_m))
+        else:
+            # A pass that saw clear floor is evidence against, and it clears
+            # the record rather than merely not adding to it.
+            self._ground_votes.clear()
+
+    def _ground_confirmed(self, reading: GroundReading) -> bool:
+        """Require several INDEPENDENT depth passes to agree.
+
+        This exists because of a bug that the caching introduced. A ground
+        reading is valid for ~1.2 s while depth runs at ~2 Hz, so the same
+        single measurement gets re-injected as a detection on every frame in
+        between. The tracker then sees it repeatedly, `min_hits` is satisfied
+        within two frames, and the confirmation is entirely fake - one
+        measurement wearing a disguise.
+
+        Counting distinct depth passes restores what min_hits was supposed to
+        provide: agreement between independent looks at the world.
+        """
+        cfg = self.config
+        if reading.anomaly_distance_m is None:
+            return False
+        recent = [
+            d for ts, d in self._ground_votes
+            if self._ground_at - ts <= cfg.ground_vote_window_s
+        ]
+        if len(recent) < cfg.ground_min_votes:
+            return False
+        # And they have to agree about *where*, not just that something is there.
+        span = max(recent) - min(recent)
+        return span <= 0.35 * max(recent)
+
+    def _ground_hazard(
+        self, reading: GroundReading, frame: Frame, camera: CameraModel
+    ) -> Detection | None:
+        """Turn a floor anomaly into a detection, so it flows through the
+        normal tracking and saliency path rather than getting a special case.
+
+        Only `step_down` is surfaced. A `step_up` is far more often a wall,
+        a kerb the user is walking onto, or furniture - all of which the
+        detector already covers - and announcing every vertical surface ahead
+        would make the system unusable. The drop is the hazard nothing else
+        catches, and it is the one that hurts people.
+
+        `step_up` still shortens the free-space distance, which is what the
+        on-request "how far is clear?" answer uses.
+        """
+        if reading.anomaly != "step_down" or reading.anomaly_distance_m is None:
+            return None
+        if not self._ground_confirmed(reading):
+            return None
+        try:
+            cls = self.taxonomy["step_down"]
+        except KeyError:
+            return None
+
+        # Placed in the middle of the walking corridor, which is where the
+        # profile sampled it from by construction.
+        cx = frame.width / 2.0
+        half = frame.width * 0.08
+        det = Detection(
+            box=(cx - half, frame.height * 0.75, cx + half, frame.height * 0.95),
+            score=min(0.99, reading.fit_quality),
+            class_id=cls.id,
+            label=cls.name,
+            hazard=cls.hazard,
+        )
+        det.distance_m = reading.anomaly_distance_m
+        det.distance_source = "depth"
+        det.bearing_deg = 0.0
+        return det
 
     def close(self) -> None:
         if self.detector is not None:
             self.detector.close()
+        if self.depth is not None:
+            self.depth.close()
         self.voice.close()

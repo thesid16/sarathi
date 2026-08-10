@@ -197,6 +197,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     pipeline = Pipeline(
         PipelineConfig(
             detector=args.detector,
+            depth=args.depth,
             lang=args.lang,
             speak=args.speak,
             camera_height_m=args.camera_height,
@@ -216,6 +217,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     deadline = time.monotonic() + args.seconds
     seen: dict[str, int] = {}
     said = 0
+    ground_seen = False
     try:
         while time.monotonic() < deadline:
             frame = cam.get(timeout=2.0)
@@ -226,6 +228,12 @@ def cmd_run(args: argparse.Namespace) -> int:
             result = pipeline.process(frame)
             for det in result.detections:
                 seen[det.label] = seen.get(det.label, 0) + 1
+            if result.ground is not None and result.ground.anomaly and not ground_seen:
+                ground_seen = True
+                print(f"   ground: {result.ground.anomaly} @ "
+                      f"{result.ground.anomaly_distance_m:.1f} m, "
+                      f"free {result.ground.free_distance_m:.1f} m, "
+                      f"fit {result.ground.fit_quality:.2f}")
             if result.utterance is not None:
                 said += 1
                 elapsed = args.seconds - (deadline - time.monotonic())
@@ -460,6 +468,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--source", "-s", help="index, URL or file path")
     run.add_argument("--seconds", type=float, default=20.0)
     run.add_argument("--detector", default="yolo11n-coco-320")
+    run.add_argument("--depth", default=None,
+                     help="depth model id, e.g. depth-anything-v2-small (Tier 2, ~2 Hz)")
     run.add_argument("--lang", default="en", choices=["en", "hi"])
     run.add_argument("--speak", action="store_true", help="actually talk")
     run.add_argument("--max-hz", type=float, default=8.0)

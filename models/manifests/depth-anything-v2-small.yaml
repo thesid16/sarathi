@@ -27,11 +27,14 @@ runtime:
 
 files:
   onnx:
-    path: depth_anything_v2_vits.onnx
+    path: depth-anything-v2-small-252.onnx
+    sha256: 36cf5d240f636073bb4c306ad50ac56389a31221d380ad31a64fb659c971cf5b
+    size_bytes: 99102356
+    url: https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf
 
 input:
-  width: 518
-  height: 518
+  width: 252
+  height: 252
   layout: NCHW
   color: RGB
   dtype: float32
@@ -43,6 +46,14 @@ input:
 delegates: [gpu, xnnpack]
 
 notes: >
-  518x518 is heavy for a 2 Hz mobile budget. A 256 or 308 export is worth
-  benchmarking - depth for step detection needs far less spatial precision than
-  depth for reconstruction. Measure before assuming.
+  Exported at 252x252 rather than the native 518. DINOv2 uses patch 14, so the
+  input must be a multiple of 14; 252 = 14*18. Step and kerb detection needs far
+  less spatial precision than depth reconstruction does, and 518 is not
+  affordable at any useful rate on a phone.
+
+  Measured: 24.8M params, 99 MB FP32, 65 ms p50 on an M3 CPU at 252x252. That
+  cost is the whole reason depth is a 2 Hz tier rather than a per-frame stage.
+  INT8 should take the size to roughly a quarter; that is not yet measured.
+
+  Output is INVERSE relative depth - larger values are NEARER, and the scale is
+  arbitrary per frame. It is not metres and must never be used as metres.

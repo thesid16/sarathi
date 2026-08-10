@@ -404,6 +404,42 @@ Mitigations, in order of how much they would actually help:
 Recorded rather than fixed, because the honest fix is the depth tier and that
 is a separate piece of work.
 
+### The depth tier is unvalidated on real floors, and is off by default
+
+The floor analysis passes 17 tests against synthetic geometry, correctly
+detects drop-offs and steps, and is scale-invariant to the depth model's
+arbitrary output range. None of that means it works.
+
+Pointed at a real scene — a desk, a person, a wall — it announced **"step down
+ahead" four times in fifteen seconds**. There was no step. The `fit_quality`
+gate did not catch it: a desk surface fits a flat-ground model perfectly well,
+returning 0.85–0.88, comfortably over the 0.80 trust threshold. A smooth
+surface that is not floor looks exactly like floor to this analysis.
+
+False drop-off alerts are the worst failure mode this system has. Someone stops
+or stumbles for nothing, and then stops trusting the one warning that matters.
+
+Two fixes went in, and one problem remains open:
+
+**Fixed — fake confirmation.** A ground reading stays valid for ~1.2 s while
+depth runs at ~2 Hz, so the same measurement was re-injected as a detection on
+every frame in between. The tracker saw it repeatedly, `min_hits` was satisfied
+within two frames, and the confirmation was one measurement wearing a disguise.
+Now three *independent* depth passes must agree, and agree about *where*; a
+pass that sees clear floor wipes the record rather than merely not adding to
+it.
+
+**Fixed — camera pitch.** The fit needs genuine near-field floor to calibrate
+against, and a near-level chest camera has almost none: its nearest visible
+ground is over two metres away. Around 20° of downward tilt is now assumed, and
+`CameraModel.nearest_visible_ground_m` makes the blind spot explicit.
+
+**Open — "is this actually floor?"** Nothing currently distinguishes a floor
+from a desk or a wall. Until it does, the depth tier stays **disabled by
+default** (`--depth` is opt-in) and no claim is made about drop-off detection.
+Validating it needs real footage of real kerbs, which is what the evaluation
+walk is for.
+
 ### Synthetic footage cannot validate a detector
 
 A rendered scene of a person-shaped figure approaching was detected as a

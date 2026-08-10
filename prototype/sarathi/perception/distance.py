@@ -98,6 +98,17 @@ class CameraModel:
         """
         return self.cy - self.fy * math.tan(math.radians(self.pitch_deg))
 
+    @property
+    def nearest_visible_ground_m(self) -> float | None:
+        """Distance to the closest floor the camera can actually see.
+
+        Set by the bottom edge of the frame, and it is further out than people
+        expect: a chest-mounted camera aimed nearly level cannot see the ground
+        at its own feet. Anything nearer than this is a blind spot, and both the
+        ground-plane estimator and the floor analysis are bounded by it.
+        """
+        return self.ground_distance(self.height - 1)
+
     def bearing_deg(self, x: float) -> float:
         """Horizontal angle from straight ahead. Negative left, positive right."""
         return math.degrees(math.atan2(x - self.cx, self.fx))
