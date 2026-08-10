@@ -242,13 +242,50 @@ reinstall and walk around the building.
 ## Roadmap
 
 - [x] **Phase 0** — repo, config, camera source layer, capture benchmarking
-- [ ] **Phase 1** — model registry, detection, geometric distance, tracking
-- [ ] **Phase 2** — saliency, phrasing, speech: the first genuinely usable walk
-- [ ] **Phase 3** — power policy: motion gating, adaptive rate, thermal governor
-- [ ] **Phase 4** — on-demand OCR and VLM scene description
-- [ ] **Phase 5** — taxonomy, dataset, fine-tuning, INT8 export
-- [ ] **Phase 6** — Android app (Pixel 8a · Tensor G3)
-- [ ] **Phase 7** — evaluation walk, full benchmark set
+- [x] **Phase 1** — model registry, detection, geometric distance, tracking
+- [x] **Phase 2** — saliency, phrasing, speech: the first genuinely usable walk
+- [x] **Phase 3** — power policy: motion gating, adaptive rate, thermal governor
+- [x] **Phase 4** — on-demand OCR and VLM scene description
+- [x] **Phase 5** — taxonomy, dataset, fine-tuning, quantized export
+- [x] **Phase 6** — Android app (Pixel 8a · Tensor G3)
+- [ ] **Phase 7** — evaluation walk with a blind user, full benchmark set
+
+## Measured on a Pixel 8a
+
+Everything below was read off the device, not estimated. Reproduce any of it
+with `adb logcat -s SarathiService SarathiDelegate SarathiVLM SarathiOCR`.
+
+| | |
+|---|---:|
+| Detection | **33 ms** per frame, YOLO11n 320 px, dynamic-range INT8 |
+| Frames reaching the model while walking | ~18% (motion gate + rate limit) |
+| Detector accuracy | mAP50 **0.597** over 26 classes, held out by source |
+| stairs\_up / stairs\_down / open\_manhole recall | **0.983 / 0.950 / 0.930** |
+| Text reading | **720 ms**, 4 of 4 blocks |
+| Scene description | **3.6 s** warm, 4.4 s to load the engine |
+| App memory, guidance only | **182 MB** |
+
+Three results were worth more than the numbers themselves:
+
+**Quantization.** Full INT8 is the fastest variant available and detects
+nothing — the class head collapses to 0.0000 while the box rows still peak at
+333.8, because post-sigmoid scores occupy a range a per-tensor int8 scale
+rounds to zero. Dynamic-range quantization is 3.7× smaller, 3–4× faster and
+numerically equivalent. [→](docs/03-optimization.md)
+
+**The GPU is faster and wrong.** It takes all 377 nodes, runs at roughly twice
+the CPU's speed, and returns a tensor deviating by up to 264.5 where the
+reference value is 43.5. It was rejected by an agreement check that compares
+every candidate backend against the CPU on a real image — without which this
+would have shipped as an app that felt fast and silently detected nothing.
+[→](docs/03-optimization.md)
+
+**A desk is not a worse floor than a floor.** The depth tier's flat-ground fit
+is scale-invariant, which is what makes it safe on a depth model with no units
+— and is exactly why it cannot tell which plane it is looking at. A floor at
+1.2 m and a desk at 0.45 m both fit at 1.0000. Fixed by anchoring the scale to
+a detection's measured distance rather than by tuning a threshold.
+[→](docs/01-architecture.md)
 
 ## Documentation
 
@@ -257,6 +294,11 @@ reinstall and walk around the building.
 | [Overview](docs/00-overview.md) | Product, users, requirements, how success is judged |
 | [Architecture](docs/01-architecture.md) | System design, frame lifecycle, threading, power policy |
 | [Model selection](docs/02-model-selection.md) | Candidates, licence analysis, benchmark plan |
+| [Optimization](docs/03-optimization.md) | Every measure with before/after, including the GPU delegate that was rejected |
+| [Scene description](docs/05-vlm.md) | Gemma 4 E2B on device: latency, memory, and the build that cannot see |
+| [Text reading](docs/06-ocr.md) | OCR, the recogniser comparison, and the licence trade made knowingly |
+| [Results](docs/07-results.md) | Held-out detector accuracy, per class |
+| [Engineering report](docs/assets/report.html) | The whole project on one page, with every measured number |
 | [Datasets](docs/04-datasets.md) | Every source with its licence, and how the domain gap gets closed without collecting data |
 | [ADRs](docs/adr/) | Decision records, including the options rejected and why |
 
