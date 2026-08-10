@@ -1,0 +1,56 @@
+# Ultralytics YOLO11n at 320px.
+#
+# AGPL-3.0, which is the same licence as Sarathi, so there is no conflict.
+# Under a closed commercial licence this model would be unusable without buying
+# a commercial licence from Ultralytics - see docs/02-model-selection.md.
+#
+# Likely lead candidate: best tooling and export path of anything on the
+# shortlist. It is benchmarked against Apache-2.0 alternatives, and if one of
+# those lands within ~2 mAP that one ships instead, because a permissive model
+# is worth more to the people who will reuse this project.
+
+id: yolo11n-coco-320
+task: detection
+family: yolo11
+version: 1.0.0
+
+license: AGPL-3.0
+distribution: bundled
+source_url: https://github.com/ultralytics/ultralytics
+attribution: "YOLO11 by Ultralytics, AGPL-3.0"
+
+runtime:
+  prototype: onnxruntime
+  android: litert
+
+files:
+  onnx:
+    path: yolo11n-320.onnx
+  # tflite entry is added by the export step in training/export/.
+
+input:
+  width: 320
+  height: 320
+  layout: NCHW
+  color: RGB
+  dtype: float32
+  resize: letterbox      # aspect-preserving; stretching moves every box
+  pad_value: 114
+  scale: 0.00392156862745098   # 1/255
+  mean: [0.0, 0.0, 0.0]
+  std: [1.0, 1.0, 1.0]
+
+output:
+  decoder: yolo11        # anchor-free, [1, 4+nc, anchors], xywh centre form
+  labels: coco80
+  conf_threshold: 0.35
+  nms_iou: 0.5
+  max_detections: 50
+
+delegates: [gpu, xnnpack]
+
+notes: >
+  Preprocessing recorded from the Ultralytics default pipeline. Confirm against
+  the exported graph's actual input signature before trusting benchmark
+  numbers - an export at a different imgsz silently changes the shape while the
+  manifest keeps claiming 320.

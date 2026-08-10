@@ -119,6 +119,56 @@ def cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_models(args: argparse.Namespace) -> int:
+    """List every model the registry can see, and whether it is present."""
+    from .models import ModelRegistry
+
+    registry = ModelRegistry()
+    manifests = registry.list(task=args.task)
+    if not manifests:
+        print(f"no manifests found in {registry.manifest_dir}")
+        return 1
+
+    for manifest in manifests:
+        try:
+            spec = manifest.file_for("prototype")
+            path = spec.resolve(registry.weights_dir)
+            state = "present" if path.exists() else "not downloaded"
+        except Exception:  # noqa: BLE001 - reported as a state, not raised
+            state = "no prototype build"
+        mark = "  " if manifest.loadable else "x "
+        print(f"{mark}{manifest.describe()}   [{state}]")
+
+    if any(not m.loadable for m in manifests):
+        print("\nx = excluded by licence policy; will not load")
+    return 0
+
+
+def cmd_licenses(args: argparse.Namespace) -> int:
+    """Audit the licence of every model in one command."""
+    from .models import ModelRegistry
+
+    registry = ModelRegistry()
+    rows = registry.licence_table()
+    if not rows:
+        print("no models found")
+        return 1
+
+    if args.attribution:
+        print(registry.attribution_text())
+        return 0
+
+    widths = [max(len(row[i]) for row in rows) for i in range(4)]
+    header = ("model", "task", "licence", "distribution")
+    widths = [max(w, len(h)) for w, h in zip(widths, header)]
+    line = "  ".join(h.ljust(w) for h, w in zip(header, widths))
+    print(line)
+    print("-" * len(line))
+    for row in rows:
+        print("  ".join(str(c).ljust(w) for c, w in zip(row, widths)))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sarathi", description=__doc__.split("\n")[0])
     parser.add_argument("--config", "-c", help="YAML config file (or a name under configs/)")
@@ -139,6 +189,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     show = sub.add_parser("config", help="print the fully merged configuration")
     show.set_defaults(func=cmd_config)
+
+    models = sub.add_parser("models", help="list known models and whether weights are present")
+    models.add_argument("--task", choices=["detection", "depth", "ocr", "vlm"])
+    models.set_defaults(func=cmd_models)
+
+    lic = sub.add_parser("licenses", help="audit the licence of every model")
+    lic.add_argument(
+        "--attribution", action="store_true", help="emit the generated attribution notice"
+    )
+    lic.set_defaults(func=cmd_licenses)
 
     return parser
 

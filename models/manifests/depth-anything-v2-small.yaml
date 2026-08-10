@@ -1,0 +1,48 @@
+# Depth Anything V2 Small - Apache-2.0, and the usable member of the family.
+#
+# Compare depth-anything-v2-base.yaml: same repository, same paper, different
+# licence. Only the Small checkpoint is Apache-2.0.
+#
+# Runs on Tier 2 at ~2 Hz and only while the user is moving, because its job is
+# not to measure distance - the geometric estimator does that far more cheaply -
+# but to find hazards that have no bounding box: steps, kerbs, drop-offs, and
+# surfaces no detector has a class for.
+#
+# Output is RELATIVE depth. It is not metres, and treating it as metres would
+# produce confidently wrong spoken distances.
+
+id: depth-anything-v2-small
+task: depth
+family: depth-anything-v2
+version: 2.0.0
+
+license: Apache-2.0
+distribution: bundled
+source_url: https://github.com/DepthAnything/Depth-Anything-V2
+attribution: "Depth Anything V2 (Small), Apache-2.0"
+
+runtime:
+  prototype: onnxruntime
+  android: litert
+
+files:
+  onnx:
+    path: depth_anything_v2_vits.onnx
+
+input:
+  width: 518
+  height: 518
+  layout: NCHW
+  color: RGB
+  dtype: float32
+  resize: stretch          # depth models are trained on resized, not letterboxed, input
+  scale: 0.00392156862745098   # 1/255
+  mean: [0.485, 0.456, 0.406]  # ImageNet
+  std: [0.229, 0.224, 0.225]
+
+delegates: [gpu, xnnpack]
+
+notes: >
+  518x518 is heavy for a 2 Hz mobile budget. A 256 or 308 export is worth
+  benchmarking - depth for step detection needs far less spatial precision than
+  depth for reconstruction. Measure before assuming.
