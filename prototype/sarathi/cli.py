@@ -392,7 +392,8 @@ def cmd_dataset(args: argparse.Namespace) -> int:
     out = Path(args.out).expanduser()
     print(f"\nbuilding -> {out}")
     stats = build_dataset(samples, out, taxonomy,
-                          val_fraction=args.val_fraction, copy_images=args.copy_images)
+                          val_fraction=args.val_fraction, copy_images=args.copy_images,
+                          min_instances=args.min_instances)
     write_attribution(configs, out / "ATTRIBUTION.md")
     print()
     print(stats.report(taxonomy))
@@ -622,6 +623,8 @@ def build_parser() -> argparse.ArgumentParser:
     ds.add_argument("--data-root", default="~/sarathi", help="where data/raw/ lives")
     ds.add_argument("--out", default="~/sarathi/data/sarathi77")
     ds.add_argument("--val-fraction", type=float, default=0.15)
+    ds.add_argument("--min-instances", type=int, default=200,
+                    help="classes below this are not shipped in the label set")
     ds.add_argument("--copy-images", action="store_true",
                     help="copy rather than symlink (tens of GB - usually wrong)")
     ds.set_defaults(func=cmd_dataset)

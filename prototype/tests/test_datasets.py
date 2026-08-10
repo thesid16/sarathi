@@ -162,13 +162,17 @@ def test_build_writes_yolo_labels_and_a_data_yaml(tmp_path):
     stats = build_dataset([sample_at(tmp_path, "s1", "a")], out, TAX)
     assert (out / "data.yaml").exists()
     data = yaml.safe_load((out / "data.yaml").read_text())
-    assert data["nc"] == len(TAX)
+    # Ids are compacted to the shipped set, not the taxonomy's 0..76: a head
+    # with outputs that never fire costs tensor width and NMS work per frame.
+    ship = (out / "labels.txt").read_text().split()
+    assert ship == ["pole"]
+    assert data["nc"] == 1 and data["names"] == {0: "pole"}
     label_files = list((out / "labels").rglob("*.txt"))
     assert len(label_files) == 1
     cls, cx, cy, bw, bh = label_files[0].read_text().split()
-    assert int(cls) == TAX["pole"].id
+    assert int(cls) == 0
     assert 0 < float(cx) < 1 and 0 < float(bh) < 1
-    assert stats.per_class["pole"] == 1
+    assert stats.per_class_train["pole"] == 1
 
 
 def test_consecutive_frames_stay_together(tmp_path):
@@ -256,7 +260,6 @@ def test_held_out_boxes_never_count_as_training_coverage(tmp_path):
     assert stats.per_class_train["auto_rickshaw"] == 0
     report = stats.report(TAX)
     assert "eval only" in report
-    # and it must still be listed as untrainable
     section = report.split("have NO TRAINING data:")[1]
     assert "auto_rickshaw" in section
 
@@ -404,3 +407,44 @@ def test_idd_bndbox_element_order_does_not_matter(tmp_path):
     )
     box = list(read_voc(root, {"car": "car"}))[0].boxes[0]
     assert (box.x1, box.y1, box.x2, box.y2) == (10, 50, 100, 200)
+
+
+def test_thin_classes_are_kept_out_of_the_shipped_label_set(tmp_path):
+    """pothole has 2 real instances. A class with 2 examples produces occasional
+    confident nonsense rather than silence, which for a hazard is the wrong
+    direction to fail in."""
+    samples = [sample_at(tmp_path, "s", f"a{i}", label="pole") for i in range(100)]
+    samples += [sample_at(tmp_path, "s", f"b{i}", label="pothole") for i in range(2)]
+    stats = build_dataset(samples, tmp_path / "out", TAX, min_instances=50)
+    assert "pole" in stats.shipped
+    assert "pothole" not in stats.shipped
+    assert stats.not_shipped["pothole"] == 2
+    # and it is still counted as coverage, so the report tells the truth
+    assert stats.per_class_train["pothole"] == 2
+
+
+def test_below_threshold_is_reported_separately_from_a_label_map_bug(tmp_path):
+    """One is deliberate, the other means a config is wrong. Conflating them
+    means nobody notices the config."""
+    s1 = sample_at(tmp_path, "s", "a", label="pothole")
+    s2 = sample_at(tmp_path, "s", "b")
+    s2.boxes[0].label = "not_a_taxonomy_class"
+    stats = build_dataset([s1, s2], tmp_path / "out", TAX, min_instances=99)
+    assert stats.not_shipped["pothole"] == 1
+    assert stats.skipped_unknown_class["not_a_taxonomy_class"] == 1
+    report = stats.report(TAX)
+    assert "below the instance threshold" in report
+    assert "a config bug if unexpected" in report
+
+
+def test_held_out_classes_survive_the_shipping_filter_in_the_report(tmp_path):
+    """auto_rickshaw is eval-only and unshipped. Dropping it from the report
+    would hide the exact gap the hold-out exists to expose."""
+    train = [sample_at(tmp_path, "w", f"f{i}") for i in range(100)]
+    held = [sample_at(tmp_path, "idd", f"g{i}", label="auto_rickshaw") for i in range(60)]
+    for s_ in held:
+        s_.source, s_.role = "idd", "eval_only"
+    stats = build_dataset(train + held, tmp_path / "out", TAX, min_instances=50)
+    assert "auto_rickshaw" not in stats.shipped
+    assert stats.per_class_eval["auto_rickshaw"] == 60
+    assert "auto_rickshaw" in stats.report(TAX)

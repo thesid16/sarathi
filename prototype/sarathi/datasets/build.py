@@ -56,7 +56,12 @@ class BuildStats:
     train_images: int = 0
     val_images: int = 0
     eval_only_images: int = 0
+    #: The class list this checkpoint is actually trained on, in model order.
+    shipped: list[str] = field(default_factory=list)
+    excluded_thin: list[str] = field(default_factory=list)
     skipped_unknown_class: Counter[str] = field(default_factory=Counter)
+    #: In the taxonomy but below the instance threshold - deliberate, not a bug.
+    not_shipped: Counter[str] = field(default_factory=Counter)
 
     def report(self, taxonomy: Taxonomy) -> str:
         train_total = sum(self.per_class_train.values())
@@ -116,6 +121,33 @@ class BuildStats:
             lines += ["", "classes with fewer than 50 instances (expect poor recall):"]
             for name, count in sorted(thin, key=lambda kv: kv[1]):
                 lines.append(f"    {name:<20} {count:>5}")
+
+        if self.shipped:
+            lines += [
+                "",
+                f"shipped label set: {len(self.shipped)} classes "
+                f"(of {len(taxonomy)} in the taxonomy)",
+                "    " + ", ".join(self.shipped),
+            ]
+            if self.excluded_thin:
+                lines += [
+                    "",
+                    f"{len(self.excluded_thin)} taxonomy classes are NOT in this "
+                    "checkpoint's label set.",
+                    "They must be reported as known-absent in the evaluation. A model",
+                    "that claims a class it was never trained on will produce confident",
+                    "nonsense rather than silence, which for a hazard class is the",
+                    "wrong direction to fail in.",
+                ]
+
+        if self.not_shipped:
+            lines += [
+                "",
+                "boxes dropped for being below the instance threshold "
+                "(deliberate, not a bug):",
+            ]
+            for name, count in self.not_shipped.most_common(12):
+                lines.append(f"    {name:<20} {count:>7}")
 
         if self.skipped_unknown_class:
             lines += ["", "labels not in the taxonomy (a config bug if unexpected):"]
@@ -181,6 +213,31 @@ def assign_splits(
     return splits
 
 
+def shipped_classes(
+    samples: list[Sample], taxonomy: Taxonomy, min_instances: int
+) -> list[str]:
+    """Which classes the model will actually be trained to detect.
+
+    A 77-class head where 51 outputs never fire is not free: it is a wider
+    output tensor, more NMS work per frame, and a label set that claims support
+    the model does not have. Worse, a class with 2 training instances will
+    produce occasional confident nonsense rather than nothing, which for a
+    hazard class is the bad direction to fail in.
+
+    So the shipped label set is the classes with enough data to learn, and the
+    taxonomy stays 77 because it is the product's vocabulary rather than this
+    checkpoint's. Everything excluded is named in the evaluation as
+    known-absent.
+    """
+    counts: Counter[str] = Counter()
+    for sample in samples:
+        if sample.role == "eval_only":
+            continue
+        for box in sample.boxes:
+            counts[box.label] += 1
+    return [c.name for c in taxonomy if counts.get(c.name, 0) >= min_instances]
+
+
 def build_dataset(
     samples: list[Sample],
     out_dir: str | Path,
@@ -189,12 +246,22 @@ def build_dataset(
     val_fraction: float = 0.15,
     copy_images: bool = False,
     block_size: int = 200,
+    min_instances: int = 1,
 ) -> BuildStats:
     """Write a YOLO-format dataset. Returns the distribution to inspect first."""
     taxonomy = taxonomy or Taxonomy.load()
     out = Path(out_dir)
     stats = BuildStats()
-    index = {cls.name: cls.id for cls in taxonomy}
+
+    # Compacted ids: the model's class 0..M-1, not the taxonomy's 0..76. A
+    # sparse head wastes capacity and inference on outputs that never fire.
+    ship = shipped_classes(samples, taxonomy, min_instances)
+    index = {name: i for i, name in enumerate(ship)}
+    taxonomy_names = {c.name for c in taxonomy}
+    stats.shipped = ship
+    stats.excluded_thin = [
+        c.name for c in taxonomy if c.name not in index
+    ]
 
     for split in ("train", "val"):
         (out / "images" / split).mkdir(parents=True, exist_ok=True)
@@ -219,8 +286,23 @@ def build_dataset(
         for sample in members:
             lines: list[str] = []
             for box in sample.boxes:
+                # Count coverage BEFORE the shipping check. A held-out class
+                # like auto_rickshaw is not in the model's label set and still
+                # has to appear in the report - it is the reason IDD was held
+                # out, and silently dropping it would hide exactly the gap the
+                # hold-out exists to expose.
+                if sample.role == "eval_only":
+                    stats.per_class_eval[box.label] += 1
+                else:
+                    stats.per_class_train[box.label] += 1
+
                 if box.label not in index:
-                    stats.skipped_unknown_class[box.label] += 1
+                    if box.label in taxonomy_names:
+                        # In the taxonomy, below the instance threshold.
+                        stats.not_shipped[box.label] += 1
+                    else:
+                        # Not a taxonomy class at all - a label-map bug.
+                        stats.skipped_unknown_class[box.label] += 1
                     continue
                 cx = (box.x1 + box.x2) / 2.0 / sample.width
                 cy = (box.y1 + box.y2) / 2.0 / sample.height
@@ -232,10 +314,6 @@ def build_dataset(
                     f"{index[box.label]} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}"
                 )
                 stats.per_class[box.label] += 1
-                if sample.role == "eval_only":
-                    stats.per_class_eval[box.label] += 1
-                else:
-                    stats.per_class_train[box.label] += 1
             if not lines:
                 continue
 
@@ -273,12 +351,14 @@ def build_dataset(
                 "path": str(out.resolve()),
                 "train": "images/train",
                 "val": "images/val",
-                "nc": len(taxonomy),
-                "names": {cls.id: cls.name for cls in taxonomy},
+                "nc": len(ship),
+                "names": {i: name for i, name in enumerate(ship)},
             },
             sort_keys=False,
         )
     )
+    # The label file the model manifest will point at, in model order.
+    (out / "labels.txt").write_text("\n".join(ship) + "\n")
     return stats
 
 
