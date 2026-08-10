@@ -140,6 +140,8 @@ class GuidanceService : LifecycleService() {
         Log.i(TAG, "frames=${scheduler.framesConsidered} ran=${scheduler.framesRan} " +
             "(skip ${"%.0f".format(scheduler.skipRate * 100)}%) " +
             "activity=${scheduler.activity} " +
+            "hz=${"%.1f".format(scheduler.targetHz(scheduler.lastPressure))} " +
+            "thermal=${"%.2f".format(scheduler.lastPressure)} " +
             "detections=$detectionCount maxScore=${"%.3f".format(lastMaxScore)} " +
             "inference=${inferenceMsTotal / ran}ms " +
             "said=$utteranceCount dropped=${voice.droppedCount} " +

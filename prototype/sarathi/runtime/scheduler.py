@@ -202,9 +202,16 @@ class SchedulerConfig:
 
     thermal_enabled: bool = True
     #: Above this pressure, start shedding frame rate.
-    thermal_soft: float = 0.30
-    #: Above this, drop to the idle rate whatever the user is doing.
-    thermal_hard: float = 0.70
+    #:
+    #: Calibrated against a real Pixel 8a rather than guessed. Sustained camera
+    #: plus fp32 CPU inference took it to skin 43.6 C, battery 44.9 C and
+    #: THERMAL_STATUS_MODERATE, with Android reporting 0.95 headroom. The
+    #: original 0.30 treated a merely-warm phone as throttling and collapsed
+    #: the rate from 8 Hz to 1 Hz on a device that was coping fine.
+    thermal_soft: float = 0.60
+    #: Above this, drop to the idle rate whatever the user is doing. 1.0 is
+    #: Android's SEVERE threshold, so this still leaves real headroom.
+    thermal_hard: float = 0.95
 
     depth_hz: float = 2.0
     #: Depth only earns its cost while the user is actually moving.

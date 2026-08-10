@@ -34,8 +34,18 @@ class Scheduler(
         val motionThreshold: Double = 0.012,
         val settleMs: Long = 2000,
         val thermalEnabled: Boolean = true,
-        val thermalSoft: Double = 0.30,
-        val thermalHard: Double = 0.70,
+        // Calibrated against a real Pixel 8a, not guessed. Sustained camera
+        // plus fp32 CPU inference took it to skin 43.6 C, battery 44.9 C and
+        // THERMAL_STATUS_MODERATE, with getThermalHeadroom reporting 0.95.
+        // The original 0.30 soft threshold meant a merely-warm phone was
+        // treated as throttling and the rate collapsed from 8 Hz to 1 Hz -
+        // an eightfold loss of responsiveness on a device that was coping.
+        //
+        // 1.0 is the SEVERE throttling threshold, so shedding across
+        // 0.60-0.95 leaves real headroom before the platform intervenes while
+        // not reacting to ordinary warmth.
+        val thermalSoft: Double = 0.60,
+        val thermalHard: Double = 0.95,
         val depthHz: Double = 2.0,
     )
 
@@ -59,6 +69,8 @@ class Scheduler(
 
     var framesConsidered = 0L; private set
     var framesRan = 0L; private set
+    /** Last thermal headroom reading, for the field diagnostics line. */
+    var lastPressure = 0.0; private set
     val skips = mutableMapOf<Skip, Long>()
 
     /**
@@ -104,6 +116,7 @@ class Scheduler(
         }
 
         val pressure = thermalPressure()
+        lastPressure = pressure
         val hz = targetHz(pressure)
         val since = nowMs - lastInference
 

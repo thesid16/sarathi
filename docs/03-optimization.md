@@ -105,3 +105,56 @@ Reproduce the table above:
 
 Tuning knobs are exposed so the trade can be explored rather than argued
 about: `--threshold`, `--settle`, `--max-hz`, `--idle-hz`, `--keepalive-hz`.
+
+---
+
+## Measured on the target device
+
+Pixel 8a, Tensor G3, Android 17. YOLO11n at 320 px, **float32 on the CPU via
+XNNPACK** — no quantization, no GPU delegate. This is the unoptimized baseline
+every later measure gets compared against.
+
+| | |
+|---|---|
+| Inference | **69–107 ms** per pass |
+| Frames reaching the model | ~5% (rate limit at 8 Hz against ~30 fps capture) |
+| Detection quality | max class score 0.95; `person` and `table` detected and announced correctly at ~1.9 m |
+| Thermal after sustained use | skin **43.6 °C**, battery **44.9 °C**, `THERMAL_STATUS_MODERATE`, headroom **0.95** |
+
+### The finding that matters
+
+**Sustained camera plus fp32 CPU inference drives a Pixel 8a to moderate
+thermal throttling.** That is not a marginal effect — Android reported 0.95
+headroom, where 1.0 is the severe threshold, and the governor correctly cut the
+inference rate to the 1 Hz idle floor.
+
+Two consequences.
+
+The thermal governor earns its place. Without it the app would keep pushing 8 Hz
+into a phone the platform was about to throttle anyway, and the OS would take
+the decision instead — abruptly, and without the app being able to shed the
+*right* work.
+
+And 69–107 ms per inference is the actual problem. It is far too expensive to
+sustain, and the fix is the optimization work that has not happened yet:
+
+| Measure | Expected effect | Status |
+|---|---|---|
+| INT8 quantization | ~3–4× faster, ~4× smaller | Not done — needs a calibration set |
+| GPU delegate | Moves work off the CPU, reducing skin temperature directly | Not done — `litert-gpu` is a dependency already |
+| NPU / Tensor TPU | Best case, but NNAPI is deprecated as of Android 15 and the working path on a G3 needs verifying on-device | Not done |
+
+Until those land, no battery-life claim should be made from this baseline. The
+number to quote today is the one above: *unoptimized fp32 CPU inference heats
+the device to moderate throttling*.
+
+### A threshold calibrated by measurement rather than guess
+
+The governor originally shed rate above 0.30 headroom. Against real readings
+that was badly wrong: a phone merely warm from ordinary use sat above it, so
+the rate collapsed from 8 Hz to 1 Hz on a device that was coping — an eightfold
+loss of responsiveness for nothing.
+
+Now `soft = 0.60`, `hard = 0.95`. Since 1.0 is Android's severe threshold, that
+sheds across a band that still leaves genuine headroom, without reacting to
+warmth the device is handling.
