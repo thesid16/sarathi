@@ -158,3 +158,64 @@ loss of responsiveness for nothing.
 Now `soft = 0.60`, `hard = 0.95`. Since 1.0 is Android's severe threshold, that
 sheds across a band that still leaves genuine headroom, without reacting to
 warmth the device is handling.
+
+
+## Quantization, measured
+
+Every variant `onnx2tf` can produce, scored against 250 real calibration frames
+stratified across all five source datasets. Latency here is x86 server CPU; the
+on-device figures follow.
+
+| model | size | ms | max class score | verdict |
+|---|---:|---:|---:|---|
+| fp32 baseline | 10.60 MB | 7.0 | 0.876 | reference |
+| **dynamic-range** | **2.87 MB** | **5.7** | **0.878** | **shipped** |
+| float16 | 5.36 MB | 6.3 | 0.876 | unusable on CPU |
+| full INT8 | 2.95 MB | 3.7 | **0.000** | broken |
+| INT8 + int16 activations | 3.07 MB | **307** | 0.879 | 46x slower |
+
+**Full INT8 is the fastest and detects nothing.** Box regression survives while
+the classification head collapses entirely: box rows still peak at 333.8 while
+class rows go to 0.0000. Post-sigmoid class scores occupy a very small numeric
+range, and a per-tensor int8 scale rounds every one of them to zero.
+
+The textbook fix for that is int16 activations. It restores accuracy exactly
+and costs **46x** the latency, because TFLite has no optimised int16 kernel and
+falls back to reference implementations.
+
+Dynamic-range quantization - int8 weights, float32 activations computed at
+runtime - is the only variant that is smaller, faster and numerically
+equivalent at once. It also requires no calibration set at all, so the
+stratified 250-image set built for full INT8 turned out to be unnecessary for
+what shipped.
+
+### On the Pixel 8a
+
+Same app, same scene, only the model changed:
+
+| | fp32 | dynamic-range |
+|---|---:|---:|
+| Inference | 69-107 ms | **23-29 ms** |
+| Model size | 10.60 MB | **2.87 MB** |
+| Thermal headroom | 0.95 (at the severe threshold) | **0.72-0.80** |
+| Governor rate | clamped to the 1 Hz idle floor | **5.7 Hz** |
+
+A **3-4x latency reduction**, and the second-order effect matters as much as
+the first: the device runs cool enough that the thermal governor stops having
+to intervene, so the inference rate is set by the product's own policy rather
+than by heat.
+
+That still leaves the GPU delegate untried, which is the next lever and the one
+that moves work off the CPU entirely.
+
+### Three dead ends, recorded so nobody repeats them
+
+- `tensorflow-cpu` publishes no Apple Silicon wheels. The x86 wheel installs
+  and then aborts under Rosetta on missing AVX.
+- onnx2tf's default `flatbuffer_direct` backend **cannot quantize** at all -
+  it fails with "flatbuffer_direct fast path failed". Quantization needs
+  `-tb tf_converter`, which in turn needs the optional `tf_keras` dependency.
+- onnx2tf silently applies **ImageNet normalisation** to calibration data.
+  Feeding it images already scaled to [0,1] double-normalises them and
+  calibrates every activation range against a distribution the model never
+  sees, unless `-qnm` and `-qns` are passed explicitly.
