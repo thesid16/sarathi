@@ -29,6 +29,9 @@ class LiteRtDetector private constructor(
     private val labels: List<String>,
     private val hazards: Map<String, Hazard>,
     private val bridge: Map<String, String>,
+    /** Which backend won the first-run benchmark. Reported in diagnostics. */
+    val backend: String = "unknown",
+    private val delegate: org.tensorflow.lite.Delegate? = null,
 ) {
     private val spec: InputSpec = manifest.inputFor("android")
         ?: error("${manifest.id}: no input spec")
@@ -72,71 +75,12 @@ class LiteRtDetector private constructor(
         return nms(boxes, transform, bitmap.width, bitmap.height)
     }
 
-    /** Letterbox, colour-convert and normalise per the manifest. */
-    private fun writeInput(bitmap: Bitmap): Transform {
-        val ratio = min(spec.width / bitmap.width.toFloat(), spec.height / bitmap.height.toFloat())
-        val newW = (bitmap.width * ratio).toInt()
-        val newH = (bitmap.height * ratio).toInt()
-        val padX = if (spec.padMode == "center") (spec.width - newW) / 2 else 0
-        val padY = if (spec.padMode == "center") (spec.height - newH) / 2 else 0
+    private fun writeInput(bitmap: Bitmap): Transform = prepareInput(bitmap, spec, inputBuffer)
 
-        val scaled = Bitmap.createScaledBitmap(bitmap, newW, newH, true)
-        val pixels = IntArray(newW * newH)
-        scaled.getPixels(pixels, 0, newW, 0, 0, newW, newH)
-
-        inputBuffer.rewind()
-        val pad = spec.padValue.toFloat()
-        // NCHW: all of one channel, then the next. NHWC interleaves.
-        val planar = spec.layout == "NCHW"
-        val channels = 3
-
-        fun value(px: Int, channel: Int): Float {
-            val r = (px shr 16) and 0xFF
-            val g = (px shr 8) and 0xFF
-            val b = px and 0xFF
-            val raw = if (spec.color == "RGB") {
-                when (channel) { 0 -> r; 1 -> g; else -> b }
-            } else {
-                when (channel) { 0 -> b; 1 -> g; else -> r }
-            }.toFloat()
-            return (raw * spec.scale - spec.mean[channel]) / spec.std[channel]
-        }
-
-        if (planar) {
-            for (c in 0 until channels) {
-                for (y in 0 until spec.height) {
-                    val sy = y - padY
-                    for (x in 0 until spec.width) {
-                        val sx = x - padX
-                        val v = if (sy in 0 until newH && sx in 0 until newW)
-                            value(pixels[sy * newW + sx], c)
-                        else (pad * spec.scale - spec.mean[c]) / spec.std[c]
-                        inputBuffer.putFloat(v)
-                    }
-                }
-            }
-        } else {
-            for (y in 0 until spec.height) {
-                val sy = y - padY
-                for (x in 0 until spec.width) {
-                    val sx = x - padX
-                    val inside = sy in 0 until newH && sx in 0 until newW
-                    for (c in 0 until channels) {
-                        val v = if (inside) value(pixels[sy * newW + sx], c)
-                        else (pad * spec.scale - spec.mean[c]) / spec.std[c]
-                        inputBuffer.putFloat(v)
-                    }
-                }
-            }
-        }
-        inputBuffer.rewind()
-        if (scaled != bitmap) scaled.recycle()
-        return Transform(ratio, padX.toFloat(), padY.toFloat())
-    }
-
-    private data class Transform(val scale: Float, val padX: Float, val padY: Float)
+    internal data class Transform(val scale: Float, val padX: Float, val padY: Float)
 
     private data class Candidate(val box: FloatArray, val score: Float, val cls: Int)
+
 
     private fun decode(raw: FloatArray, shape: IntArray): List<Candidate> {
         // Ultralytics head: [1, 4+nc, anchors], centre-form xywh already in
@@ -235,10 +179,75 @@ class LiteRtDetector private constructor(
             "detections=${found.size} [${summary}] in ${lastInferenceMs}ms"
     }
 
-    fun close() = interpreter.close()
+    fun close() {
+        interpreter.close()
+        (delegate as? org.tensorflow.lite.gpu.GpuDelegate)?.close()
+    }
 
     companion object {
         private const val TAG = "SarathiDetector"
+
+        /** Letterbox, colour-convert and normalise per the manifest. */
+        internal fun prepareInput(bitmap: Bitmap, spec: InputSpec, inputBuffer: ByteBuffer): Transform {
+            val ratio = min(spec.width / bitmap.width.toFloat(), spec.height / bitmap.height.toFloat())
+            val newW = (bitmap.width * ratio).toInt()
+            val newH = (bitmap.height * ratio).toInt()
+            val padX = if (spec.padMode == "center") (spec.width - newW) / 2 else 0
+            val padY = if (spec.padMode == "center") (spec.height - newH) / 2 else 0
+
+            val scaled = Bitmap.createScaledBitmap(bitmap, newW, newH, true)
+            val pixels = IntArray(newW * newH)
+            scaled.getPixels(pixels, 0, newW, 0, 0, newW, newH)
+
+            inputBuffer.rewind()
+            val pad = spec.padValue.toFloat()
+            // NCHW: all of one channel, then the next. NHWC interleaves.
+            val planar = spec.layout == "NCHW"
+            val channels = 3
+
+            fun value(px: Int, channel: Int): Float {
+                val r = (px shr 16) and 0xFF
+                val g = (px shr 8) and 0xFF
+                val b = px and 0xFF
+                val raw = if (spec.color == "RGB") {
+                    when (channel) { 0 -> r; 1 -> g; else -> b }
+                } else {
+                    when (channel) { 0 -> b; 1 -> g; else -> r }
+                }.toFloat()
+                return (raw * spec.scale - spec.mean[channel]) / spec.std[channel]
+            }
+
+            if (planar) {
+                for (c in 0 until channels) {
+                    for (y in 0 until spec.height) {
+                        val sy = y - padY
+                        for (x in 0 until spec.width) {
+                            val sx = x - padX
+                            val v = if (sy in 0 until newH && sx in 0 until newW)
+                                value(pixels[sy * newW + sx], c)
+                            else (pad * spec.scale - spec.mean[c]) / spec.std[c]
+                            inputBuffer.putFloat(v)
+                        }
+                    }
+                }
+            } else {
+                for (y in 0 until spec.height) {
+                    val sy = y - padY
+                    for (x in 0 until spec.width) {
+                        val sx = x - padX
+                        val inside = sy in 0 until newH && sx in 0 until newW
+                        for (c in 0 until channels) {
+                            val v = if (inside) value(pixels[sy * newW + sx], c)
+                            else (pad * spec.scale - spec.mean[c]) / spec.std[c]
+                            inputBuffer.putFloat(v)
+                        }
+                    }
+                }
+            }
+            inputBuffer.rewind()
+            if (scaled != bitmap) scaled.recycle()
+            return Transform(ratio, padX.toFloat(), padY.toFloat())
+        }
 
         /**
          * Loads weights according to the manifest's own distribution policy.
@@ -284,14 +293,68 @@ class LiteRtDetector private constructor(
                 return null
             }
 
-            val options = Interpreter.Options().apply {
-                numThreads = 4
-                // Delegate selection is benchmarked on first run rather than
-                // assumed. NNAPI is deprecated as of Android 15, and which
-                // accelerator actually wins on a Tensor G3 is a measurement,
-                // not a guess.
+            // Benchmarked on first run rather than assumed, and cached after.
+            // Which backend wins is genuinely device-specific, and a delegate
+            // that runs but disagrees with the CPU is rejected rather than
+            // selected - silently wrong output is indistinguishable from an
+            // empty scene everywhere above this class.
+            val choice = Delegates.choose(context, buffer, sampleInput(context, manifest))
+            val (options, delegate) = Delegates.optionsFor(choice.name)
+                ?: (Interpreter.Options().apply { numThreads = 4 } to null)
+            Log.i(TAG, "backend ${choice.name} (${"%.1f".format(choice.medianMs)} ms" +
+                (if (choice.note.isNotEmpty()) ", ${choice.note}" else "") + ")")
+            return LiteRtDetector(
+                Interpreter(buffer, options), manifest, labels, hazards, bridge,
+                backend = choice.name, delegate = delegate,
+            )
+        }
+
+        /**
+         * The self-test image, preprocessed exactly as a live frame would be.
+         *
+         * The delegate benchmark compares each candidate's output against the
+         * CPU's, and that comparison is only meaningful on input that makes the
+         * model produce something. On a blank tensor every class score sits near
+         * zero and any two backends agree trivially - including one that has
+         * collapsed, which is precisely the failure the check exists to catch.
+         */
+        private fun sampleInput(context: Context, manifest: ModelManifest): ByteBuffer? {
+            val spec = manifest.inputFor("android") ?: return null
+            val bitmap = runCatching {
+                context.assets.open("models/selftest.jpg").use {
+                    android.graphics.BitmapFactory.decodeStream(it)
+                }
+            }.getOrNull() ?: return null
+            val buffer = ByteBuffer
+                .allocateDirect(4 * 3 * spec.width * spec.height)
+                .order(ByteOrder.nativeOrder())
+            prepareInput(bitmap, spec, buffer)
+            bitmap.recycle()
+            return buffer
+        }
+
+        /**
+         * Benchmark every model variant present against every backend.
+         *
+         * Triggered by a marker file rather than a UI control: it is a
+         * developer and field-diagnosis tool, and the app's whole interface is
+         * meant to be usable without looking at it.
+         *
+         *   adb push yolo11n-320-fp32.tflite /data/local/tmp/
+         *   adb shell run-as in.sarathi.app cp /data/local/tmp/... files/models/
+         *   adb shell run-as in.sarathi.app touch files/survey
+         */
+        fun runSurvey(context: Context, manifest: ModelManifest) {
+            val models = ArrayList<Pair<String, java.nio.MappedByteBuffer>>()
+            manifest.fileFor("android")?.let { name ->
+                mapFromAssets(context, "models/$name")?.let { models += "$name (bundled)" to it }
             }
-            return LiteRtDetector(Interpreter(buffer, options), manifest, labels, hazards, bridge)
+            java.io.File(context.filesDir, "models")
+                .listFiles { f -> f.name.endsWith(".tflite") }
+                ?.sortedBy { it.name }
+                ?.forEach { f -> mapFromFiles(context, f.name)?.let { models += f.name to it } }
+            if (models.isEmpty()) return
+            Delegates.logSurvey(Delegates.survey(models, sampleInput(context, manifest)))
         }
 
         private fun mapFromAssets(context: Context, path: String): java.nio.MappedByteBuffer? =

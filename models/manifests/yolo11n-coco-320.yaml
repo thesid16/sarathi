@@ -85,7 +85,13 @@ output:
   nms_iou: 0.5
   max_detections: 50
 
-delegates: [gpu, xnnpack]
+# Preference order only - the app benchmarks these on first run and verifies
+# each against a CPU reference before using it. On a Pixel 8a the GPU delegate
+# is roughly twice as fast as XNNPACK and returns numerically wrong output for
+# this graph, so it is listed last and gets rejected at runtime rather than
+# trusted here. See docs/03-optimization.md, "The GPU delegate: measured, and
+# rejected".
+delegates: [xnnpack, gpu]
 
 notes: >
   Exported with ultralytics 8.4.117: YOLO("yolo11n.pt").export(format="onnx",

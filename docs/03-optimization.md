@@ -205,8 +205,98 @@ the first: the device runs cool enough that the thermal governor stops having
 to intervene, so the inference rate is set by the product's own policy rather
 than by heat.
 
-That still leaves the GPU delegate untried, which is the next lever and the one
-that moves work off the CPU entirely.
+## The GPU delegate: measured, and rejected
+
+The GPU was the obvious next lever, and it does not work on this device. The
+result is worth reading carefully, because the failure mode is the dangerous
+kind.
+
+The app benchmarks candidate backends on first launch and keeps the winner
+(`android/.../perception/Delegates.kt`). Every candidate is also scored against
+a single-threaded CPU run on the same real image, and rejected if it disagrees.
+On a Pixel 8a, LiteRT 1.2.0:
+
+| model | xnnpack-4t | xnnpack-2t | gpu | gpu, fp32 | gpu, no-quant | gpu, OpenGL |
+|---|---:|---:|---:|---:|---:|---:|
+| dynamic-range (shipped) | 60 ms OK | 33 ms OK | **15-32 ms WRONG** | 26 ms WRONG | 22 ms WRONG | no shader impl. |
+| fp32 | 73 ms OK | 71 ms OK | delegate fails | delegate fails | delegate fails | delegate fails |
+| fp16 | interpreter fails | interpreter fails | interpreter fails | - | - | - |
+
+Reproduce it on any phone:
+
+```bash
+adb shell run-as in.sarathi.app touch files/survey   # then start guidance
+adb logcat -s SarathiDelegate
+```
+
+**The GPU is the fastest thing on the device and it computes the wrong
+answer.** It accepts the entire graph - `Replacing 377 out of 377 node(s) with
+delegate (TfLiteGpuDelegateV2)` - runs roughly twice as fast as the CPU, and
+returns a tensor that deviates from the CPU by up to 264.5 absolute on a
+reference value of 43.5. That is not fp16 rounding. It is 5717 of 176400
+elements outside a tolerance of `0.03 + 2%`, scattered across indices 0-165825,
+which spans both the four box-regression rows and the eighty class rows. The
+whole delegation is unsound rather than one op.
+
+Three configuration probes rule out the usual explanations:
+
+- `setPrecisionLossAllowed(false)` changes the error from 264.539 to 264.695.
+  Not precision.
+- `setQuantizedModelsAllowed(false)` produces **byte-identical** wrong output,
+  so the delegate is not treating this as a quantized model at all and the int8
+  weight path is not implicated.
+- Forcing the OpenGL backend fails at init with "No shader implementation",
+  so there is no second GPU path to fall back to.
+
+And the two float variants remove the last hope of a workaround: the GPU
+delegate refuses the fp32 graph outright ("Error applying delegate", with the
+interpreter warning that `tensor#69` is dynamically sized and the delegate
+requires static shapes), while the fp16 graph cannot even be loaded on this
+build - `conv.cc:360 input_type == kTfLiteFloat32 || ... was not true`, the same
+whole-graph-fp16 problem documented above.
+
+So there is no correct GPU path for this detector on this device, and the app
+runs on `xnnpack-2t` at ~33 ms.
+
+### Why this is the finding, not a footnote
+
+Had the agreement check not been there, this would have shipped. The app would
+have selected the GPU for being fastest, run at double the rate, drawn less
+power, and **announced nothing at all** - because garbage in the class rows
+produces zero detections, and zero detections is exactly what an empty room
+also produces. A blind user would have had a device that felt like it was
+working and silently reported no hazards.
+
+The first version of the check nearly failed in the opposite direction. It used
+a flat absolute tolerance across the output, which asks 0.017% relative accuracy
+of a box coordinate near 300 - something fp16 cannot supply by construction. It
+rejected the GPU for a reason that would have been wrong. The fix was the mixed
+rule `|a-b| <= atol + rtol*|b|`, and re-running it produced a rejection with
+evidence instead of a rejection by accident.
+
+Two lessons, both cheap to reuse: **benchmark on a real image**, because a blank
+tensor drives every class score near zero and any two backends agree on noise;
+and **log the deviation whether or not it fails**, because "rejected" is not a
+result, while "264.5 absolute at reference 43.5, 5717 of 176400 elements, spread
+across the whole head" is.
+
+### A second-order cost of losing the GPU
+
+CPU latency is thermally unstable in a way the GPU's was not. Across repeated
+survey runs on a warm device, `xnnpack-4t` measured 34.6, 35.7, 58.8, 59.9,
+60.6 and 72.9 ms for the same work, while the GPU stayed between 15 and 32 ms
+throughout. Keeping detection on the CPU therefore means the thermal governor
+is not a nicety - it is the only thing standing between a warm phone and an
+inference rate that quietly halves.
+
+### What is left to try
+
+- Re-export with fully static shapes, so the GPU delegate will at least accept
+  the fp32 graph. `tensor#69` being dynamic is a property of the export, not of
+  YOLO11.
+- Retest on a future LiteRT. This is a delegate correctness bug on a widely
+  used detector, and it is the kind of thing that gets fixed upstream.
+- The survey is committed, so re-checking either of those is one command.
 
 ### Three dead ends, recorded so nobody repeats them
 
