@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Model weights are large and licensed separately - never commit them.
+# Manifests in models/manifests/ ARE committed; the binaries they point to are not.
+models/weights/**
+!models/weights/.gitkeep
+
+# Datasets
+datasets/**
+!datasets/.gitkeep
+training/datasets/**/images/
+training/datasets/**/labels/
+
+# Benchmark and run outputs
+runs/
+out/
+*.log
+
+# Recorded test footage (large). Keep the manifest, not the media.
+docs/assets/footage/
+*.mp4
+*.mov
+!docs/assets/**/*.png
+
+# Android
+android/.gradle/
+android/local.properties
+android/**/build/
+*.apk
+*.aab
+*.keystore
+
+# macOS
+.DS_Store
