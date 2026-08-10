@@ -532,3 +532,46 @@ def test_a_single_block_source_is_reported_rather_than_silently_unvalidated(tmp_
     groups = group_samples(samples, block_size=200)   # one block
     splits = assign_splits(groups, 0.15)
     assert set(splits.values()) == {"train"}
+
+
+
+def test_validation_is_stratified_across_every_source(tmp_path):
+    """The failure this prevents was silent and total: all blocks are the same
+    size, so ordering by size then key went alphabetical and val filled up
+    entirely from one source. 2 of 26 classes were evaluated while the split
+    ratio looked like a perfect 15%."""
+    from sarathi.datasets.build import assign_splits, group_samples
+
+    samples = []
+    for src, n in (("wotr", 2000), ("mendeley", 600), ("manholes", 400), ("stairs", 200)):
+        for i in range(n):
+            s_ = sample_at(tmp_path, src, f"{src}_{i:05d}")
+            s_.source = src
+            samples.append(s_)
+
+    groups = group_samples(samples, block_size=100)
+    splits = assign_splits(groups, 0.15)
+
+    val_sources = {k.split("/", 1)[0] for k, v in splits.items() if v == "val"}
+    train_sources = {k.split("/", 1)[0] for k, v in splits.items() if v == "train"}
+    assert val_sources == {"wotr", "mendeley", "manholes", "stairs"}, \
+        f"every source must appear in validation, got {val_sources}"
+    assert train_sources == {"wotr", "mendeley", "manholes", "stairs"}
+
+
+def test_each_source_contributes_roughly_its_share_to_validation(tmp_path):
+    from sarathi.datasets.build import assign_splits, group_samples
+
+    samples = []
+    for src, n in (("big", 3000), ("small", 300)):
+        for i in range(n):
+            s_ = sample_at(tmp_path, src, f"{src}_{i:05d}")
+            s_.source = src
+            samples.append(s_)
+    groups = group_samples(samples, block_size=100)
+    splits = assign_splits(groups, 0.2)
+
+    for src, n in (("big", 3000), ("small", 300)):
+        held = sum(len(groups[k]) for k, v in splits.items()
+                   if v == "val" and k.startswith(src + "/"))
+        assert 0.10 <= held / n <= 0.35, f"{src}: held {held}/{n}"

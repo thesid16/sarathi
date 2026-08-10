@@ -186,49 +186,55 @@ def group_samples(samples: list[Sample], block_size: int = 200) -> dict[str, lis
 def assign_splits(
     groups: dict[str, list[Sample]], val_fraction: float
 ) -> dict[str, str]:
-    """Distribute whole blocks to train/val, hitting the target ratio.
+    """Distribute whole blocks to train/val, stratified by source.
 
-    Greedy largest-first rather than hashing each block independently. Hashing
-    gives the right ratio only in expectation, and with a handful of large
-    blocks the variance is enormous - which is exactly how a 15% validation
-    split came out at 79%. Largest-first packing hits the target regardless of
-    how few or how uneven the blocks are.
+    Stratified, not global. A global greedy pack looks reasonable and is
+    quietly wrong here: every block is the same size, so ordering by size then
+    key degenerates to alphabetical, and validation filled up entirely from
+    whichever source sorts first. The result was a val set made purely of
+    stair images - 2 of 26 classes evaluated - while the split ratio looked
+    perfect at 15%.
 
-    Ordering is by size then key, so the result is deterministic: a rebuild
-    reproduces the split, and it does not depend on filesystem iteration order.
+    Taking the fraction from each source independently guarantees every source,
+    and therefore every class, appears on both sides. That is the property that
+    actually matters; hitting the global ratio exactly is not.
+
+    Deterministic: blocks are ordered by key within each source, so a rebuild
+    reproduces the split and it never depends on filesystem iteration order.
     """
-    total = sum(len(v) for v in groups.values())
-    target_val = total * val_fraction
-    ordered = sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    by_source: dict[str, list[str]] = defaultdict(list)
+    for key in groups:
+        by_source[key.split("/", 1)[0]].append(key)
 
     splits: dict[str, str] = {}
-    val_count = 0
-    for key, members in ordered:
-        # Take it into val if doing so gets us closer to the target than not.
-        if abs((val_count + len(members)) - target_val) <= abs(val_count - target_val):
-            splits[key] = "val"
-            val_count += len(members)
-        else:
-            splits[key] = "train"
+    for source, keys in sorted(by_source.items()):
+        keys.sort()
+        total = sum(len(groups[k]) for k in keys)
+        target = total * val_fraction
+        taken = 0
+        chosen: set[str] = set()
+        for key in keys:
+            if taken >= target:
+                break
+            # Never take the last block: a source must keep something to train
+            # on. With a single block this leaves `chosen` empty, which is the
+            # correct answer - there is nothing to hold out.
+            if len(chosen) >= len(keys) - 1:
+                break
+            chosen.add(key)
+            taken += len(groups[key])
 
-    # Greedy packing can legitimately leave validation empty when there are few
-    # blocks: one 200-image block against a 15% target is closer to the target
-    # by staying out. An empty val set means every later number is measured on
-    # training data, so force the smallest block across rather than let that
-    # happen silently.
-    if val_count == 0 and len(ordered) > 1:
-        key = ordered[-1][0]
-        splits[key] = "val"
-        log.warning(
-            "validation was empty after packing; moved the smallest block (%s, %d images) "
-            "into val. The target ratio cannot be met with only %d blocks.",
-            key, len(groups[key]), len(ordered),
-        )
-    elif val_count == 0:
-        log.warning(
-            "no validation data: this source produced a single block, so there is "
-            "nothing to hold out. Any metric from this build is measured on training data."
-        )
+        # A source with more than one block must contribute to validation, or
+        # its classes are measured on nothing.
+        if not chosen and len(keys) > 1:
+            chosen.add(keys[-1])
+        elif not chosen:
+            log.warning(
+                "source %r produced a single block, so nothing can be held out from it. "
+                "Its classes will not appear in validation.", source,
+            )
+        for key in keys:
+            splits[key] = "val" if key in chosen else "train"
     return splits
 
 
