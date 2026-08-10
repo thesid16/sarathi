@@ -98,15 +98,38 @@ class ReadStats:
         return "\n".join(lines)
 
 
-def _find_image(annotation: Path, images_dir: Path | None, declared: str | None) -> Path | None:
+def _find_image(
+    annotation: Path,
+    images_dir: Path | None,
+    declared: str | None,
+    ann_root: Path | None = None,
+) -> Path | None:
     """Locate the image an annotation refers to.
 
-    VOC files name their image, but the filename in the XML is unreliable in
-    community datasets - it often still points at whatever the exporter was
-    called locally. Falling back to matching stems is what makes these
-    downloads usable at all.
+    Three layouts, all real:
+
+    * flat - image beside the XML (Roboflow exports)
+    * split - Annotations/ and JPEGImages/ side by side (WOTR)
+    * parallel trees - Annotations/set/scene/x.xml paired with
+      JPEGImages/set/scene/x.jpg (IDD). The subdirectory path has to be
+      preserved, or nothing resolves.
+
+    On top of that, the filename inside the XML is unreliable in community
+    datasets - it often still names whatever local path the exporter had - so
+    matching by stem is the fallback that makes these usable at all.
     """
     candidates: list[Path] = []
+
+    # Parallel trees: same relative path under the images root.
+    if images_dir and ann_root:
+        try:
+            relative = annotation.relative_to(ann_root)
+        except ValueError:
+            relative = None
+        if relative is not None:
+            for suffix in IMAGE_SUFFIXES:
+                candidates.append(images_dir / relative.with_suffix(suffix))
+
     if declared:
         name = Path(declared).name
         if images_dir:
@@ -116,6 +139,7 @@ def _find_image(annotation: Path, images_dir: Path | None, declared: str | None)
         if images_dir:
             candidates.append(images_dir / (annotation.stem + suffix))
         candidates.append(annotation.parent / (annotation.stem + suffix))
+
     for candidate in candidates:
         if candidate.exists():
             return candidate
@@ -137,8 +161,13 @@ def read_voc(
     images_dir = next(
         (root / name for name in ("JPEGImages", "images") if (root / name).is_dir()), None
     )
+    ann_root = next(
+        (root / name for name in ("Annotations", "annotations") if (root / name).is_dir()),
+        None,
+    )
+    search_root = ann_root or root
 
-    for xml_path in sorted(root.rglob("*.xml")):
+    for xml_path in sorted(search_root.rglob("*.xml")):
         stats.files_seen += 1
         try:
             tree = ET.parse(xml_path)
@@ -147,7 +176,7 @@ def read_voc(
             continue
 
         declared = tree.findtext("filename")
-        image_path = _find_image(xml_path, images_dir, declared)
+        image_path = _find_image(xml_path, images_dir, declared, ann_root)
         if image_path is None:
             stats.missing_images += 1
             continue

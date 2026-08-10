@@ -351,3 +351,37 @@ def test_eval_only_images_are_reported_as_held_out(tmp_path):
     )
     assert stats.eval_only_images == 20
     assert "held out by licence/design" in stats.report(TAX)
+
+
+def test_parallel_annotation_and_image_trees_resolve(tmp_path):
+    """IDD's layout: Annotations/set/scene/x.xml <-> JPEGImages/set/scene/x.jpg.
+    The subdirectory path has to be preserved or nothing resolves at all."""
+    root = tmp_path / "IDD_Detection"
+    ann = root / "Annotations" / "highquality_16k" / "HYD-2018"
+    img = root / "JPEGImages" / "highquality_16k" / "HYD-2018"
+    ann.mkdir(parents=True)
+    img.mkdir(parents=True)
+    (img / "0001245.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+    (ann / "0001245.xml").write_text(
+        voc_xml("0001245.jpg", 1920, 1080, [("autorickshaw", 899, 638, 994, 780)])
+    )
+    samples = list(read_voc(root, {"autorickshaw": "auto_rickshaw"}, source="idd"))
+    assert len(samples) == 1
+    assert samples[0].boxes[0].label == "auto_rickshaw"
+    assert samples[0].image_path.name == "0001245.jpg"
+
+
+def test_idd_bndbox_element_order_does_not_matter(tmp_path):
+    """IDD writes ymax before xmax. Parsing by position would break."""
+    root = tmp_path / "d"
+    root.mkdir()
+    (root / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+    (root / "a.xml").write_text(
+        "<annotation><filename>a.jpg</filename>"
+        "<size><width>640</width><height>480</height></size>"
+        "<object><name>car</name><bndbox>"
+        "<xmin>10</xmin><ymax>200</ymax><xmax>100</xmax><ymin>50</ymin>"
+        "</bndbox></object></annotation>"
+    )
+    box = list(read_voc(root, {"car": "car"}))[0].boxes[0]
+    assert (box.x1, box.y1, box.x2, box.y2) == (10, 50, 100, 200)
