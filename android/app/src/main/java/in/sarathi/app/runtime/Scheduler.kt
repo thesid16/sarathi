@@ -118,8 +118,14 @@ class Scheduler(
         // strictly costs about a fifth of the target rate - a camera at twice
         // the target ends up delivering two thirds of it.
         if (hz <= 0 || since < (1000.0 / hz) * 0.95) {
-            val reason = if (config.thermalEnabled && pressure > config.thermalSoft)
-                Skip.THERMAL else Skip.RATE
+            // THERMAL only when thermal is actually REDUCING the rate, not
+            // merely when the device is warm. A Pixel idles around 0.35
+            // headroom, so labelling every rate-limited frame THERMAL made
+            // 834 of 1526 skips look like throttling on a cold phone - and
+            // hid the fact that the rate limiter was doing its ordinary job.
+            val unthrottled = if (activity == Activity.MOVING) config.maxInferenceHz
+                              else config.idleInferenceHz
+            val reason = if (hz < unthrottled - 1e-6) Skip.THERMAL else Skip.RATE
             return skip(reason, hz)
         }
 
@@ -160,6 +166,7 @@ class MotionGate(private val threshold: Double, private val size: Int = 64) {
     var lastScore: Double = 1.0
         private set
 
+    /** @param luma tightly packed width*height greyscale - row padding already removed. */
     fun changed(luma: ByteArray, width: Int, height: Int): Boolean {
         val current = FloatArray(size * size)
         val sx = width.toFloat() / size

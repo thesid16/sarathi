@@ -37,6 +37,16 @@ class LiteRtDetector private constructor(
         ByteBuffer.allocateDirect(4 * 3 * spec.width * spec.height).order(ByteOrder.nativeOrder())
 
     var lastInferenceMs: Long = 0; private set
+    /**
+     * Highest class score in the last raw head, before thresholding.
+     *
+     * Separates "the model ran and the scene genuinely has nothing in it" from
+     * "preprocessing or decoding is wrong so nothing can ever score". Those
+     * look identical from a detection count of zero, and on a device with no
+     * screen there is no other way to tell them apart.
+     */
+    var lastMaxScore: Float = 0f; private set
+    private var loggedShape = false
 
     fun detect(bitmap: Bitmap): List<Detection> {
         val transform = writeInput(bitmap)
@@ -53,6 +63,12 @@ class LiteRtDetector private constructor(
         val raw = FloatArray(elements)
         output.asFloatBuffer().get(raw)
         val boxes = decode(raw, shape)
+        if (!loggedShape) {
+            loggedShape = true
+            Log.i(TAG, "graph in=${interpreter.getInputTensor(0).shape().toList()} " +
+                "out=${shape.toList()} spec=${spec.width}x${spec.height} " +
+                "${spec.layout}/${spec.color} scale=${spec.scale}")
+        }
         return nms(boxes, transform, bitmap.width, bitmap.height)
     }
 
@@ -141,12 +157,14 @@ class LiteRtDetector private constructor(
 
         val result = ArrayList<Candidate>(64)
         val numClasses = channels - 4
+        var seenMax = 0f
         for (i in 0 until anchors) {
             var best = 0; var bestScore = 0f
             for (c in 0 until numClasses) {
                 val s = at(4 + c, i)
                 if (s > bestScore) { bestScore = s; best = c }
             }
+            if (bestScore > seenMax) seenMax = bestScore
             if (bestScore < out.confThreshold) continue
             val cx = at(0, i); val cy = at(1, i)
             val w = at(2, i); val h = at(3, i)
@@ -154,6 +172,7 @@ class LiteRtDetector private constructor(
                 floatArrayOf(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), bestScore, best
             )
         }
+        lastMaxScore = seenMax
         return result
     }
 

@@ -42,7 +42,7 @@ class CameraSource(private val context: Context) {
         private val proxy: ImageProxy,
     ) {
         /** Only called when the frame actually reaches inference. */
-        fun toBitmap(): Bitmap? = yuvToBitmap(proxy)
+        fun toBitmap(): Bitmap? = Yuv.toBitmap(proxy)
 
         override fun equals(other: Any?) = this === other
         override fun hashCode() = System.identityHashCode(this)
@@ -63,9 +63,10 @@ class CameraSource(private val context: Context) {
                 .build()
 
             analysis.setAnalyzer(executor) { proxy ->
-                val plane = proxy.planes[0]
-                val luma = ByteArray(plane.buffer.remaining())
-                plane.buffer.get(luma)
+                // Position-safe and stride-aware. Reading the plane buffer
+                // directly leaves its position at the end, so the later read
+                // for the bitmap saw nothing.
+                val luma = Yuv.luma(proxy)
                 val frame = Frame(
                     luma = luma,
                     width = proxy.width,
@@ -92,22 +93,4 @@ class CameraSource(private val context: Context) {
         executor.shutdown()
     }
 
-    companion object {
-        fun yuvToBitmap(proxy: ImageProxy): Bitmap? = runCatching {
-            val y = proxy.planes[0].buffer
-            val u = proxy.planes[1].buffer
-            val v = proxy.planes[2].buffer
-            val nv21 = ByteArray(y.remaining() + u.remaining() + v.remaining())
-            y.get(nv21, 0, y.remaining())
-            val chromaStart = nv21.size - u.remaining() - v.remaining()
-            v.get(nv21, chromaStart, v.remaining())
-            u.get(nv21, chromaStart + v.remaining().coerceAtLeast(0), u.remaining())
-
-            val out = ByteArrayOutputStream()
-            YuvImage(nv21, ImageFormat.NV21, proxy.width, proxy.height, null)
-                .compressToJpeg(Rect(0, 0, proxy.width, proxy.height), 88, out)
-            val bytes = out.toByteArray()
-            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        }.getOrNull()
-    }
 }

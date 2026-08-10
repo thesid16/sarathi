@@ -30,7 +30,9 @@ files:
     size_bytes: 10575771
     url: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt
   tflite:
-    path: yolo11n-320-fp16.tflite
+    path: yolo11n-320-fp32.tflite
+    sha256: 07636e9a4624fa7b1063937b96e93e234ebac4e5ad69b9f0feeeb9d7b85d1aea
+    size_bytes: 10598372
     url: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt
 
 # onnx2tf rewrites NCHW to NHWC, because that is the layout TFLite kernels
@@ -39,6 +41,12 @@ files:
 input_overrides:
   tflite:
     layout: NHWC
+    # float32, not float16. onnx2tf's fp16 export makes the WHOLE graph fp16
+    # including the input tensor, and TFLite's CPU CONV_2D kernel rejects an
+    # fp16 input outright - it prepares only for float32/uint8/int8/int16. An
+    # fp16 graph needs the GPU delegate. Verified on a Pixel 8a: the fp16 build
+    # failed at "Node number 1 (CONV_2D) failed to prepare".
+    dtype: float32
 
 input:
   width: 320

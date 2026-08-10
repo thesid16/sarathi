@@ -45,6 +45,15 @@ class GuidanceService : LifecycleService() {
     private var cameraModel: CameraModel? = null
     private var priors = emptyMap<String, `in`.sarathi.app.models.SizePrior>()
 
+    // Field diagnostics. This runs on a phone in a pocket with the screen off,
+    // so "it feels wrong" is the only bug report a user can give. A periodic
+    // line in logcat is the difference between diagnosing that and guessing.
+    private var lastReportAt = 0L
+    private var detectionCount = 0L
+    private var utteranceCount = 0L
+    private var inferenceMsTotal = 0L
+    private var lastMaxScore = 0f
+
     override fun onCreate() {
         super.onCreate()
         createChannel()
@@ -75,6 +84,8 @@ class GuidanceService : LifecycleService() {
             Log.w(TAG, "detector unavailable: ${it.message}")
             null
         }
+        Log.i(TAG, if (detector != null) "detector loaded: $DETECTOR_MANIFEST"
+                   else "running WITHOUT a detector - camera and speech only")
 
         camera = CameraSource(this)
         camera.start(this) { frame -> onFrame(frame) }
@@ -84,7 +95,7 @@ class GuidanceService : LifecycleService() {
         val now = System.currentTimeMillis()
         val age = now - frame.timestampMs
         val decision = scheduler.decide(frame.luma, frame.width, frame.height, age, now)
-        if (!decision.run) return
+        if (!decision.run) { report(now); return }
 
         val model = detector ?: return
         val bitmap = frame.toBitmap() ?: return
@@ -93,6 +104,9 @@ class GuidanceService : LifecycleService() {
         }
 
         val detections = model.detect(bitmap)
+        detectionCount += detections.size
+        inferenceMsTotal += model.lastInferenceMs
+        lastMaxScore = model.lastMaxScore
         for (det in detections) {
             val estimate = Geometry.estimate(det.label, det.box, camModel, priors, bitmap.height)
             det.distanceM = estimate.metres
@@ -109,7 +123,27 @@ class GuidanceService : LifecycleService() {
             metres = chosen.track.distanceM,
             urgent = chosen.urgent,
         )
-        voice.say(text, urgent = chosen.urgent, earcon = chosen.urgent)
+        val spoken = voice.say(text, urgent = chosen.urgent, earcon = chosen.urgent)
+        utteranceCount++
+        Log.i(TAG, "say${if (spoken) "" else " [dropped]"}: \"$text\"  " +
+            "(${chosen.track.label} ${chosen.track.distanceM?.let { "%.1f m".format(it) } ?: "?"} " +
+            "${chosen.track.bearingDeg?.let { "%.0f deg".format(it) } ?: "?"} " +
+            "score=%.2f${if (chosen.urgent) " URGENT" else ""})".format(chosen.score))
+        report(now)
+    }
+
+    /** One line every few seconds: what the pipeline is actually doing. */
+    private fun report(now: Long) {
+        if (now - lastReportAt < REPORT_INTERVAL_MS) return
+        lastReportAt = now
+        val ran = scheduler.framesRan.coerceAtLeast(1)
+        Log.i(TAG, "frames=${scheduler.framesConsidered} ran=${scheduler.framesRan} " +
+            "(skip ${"%.0f".format(scheduler.skipRate * 100)}%) " +
+            "activity=${scheduler.activity} " +
+            "detections=$detectionCount maxScore=${"%.3f".format(lastMaxScore)} " +
+            "inference=${inferenceMsTotal / ran}ms " +
+            "said=$utteranceCount dropped=${voice.droppedCount} " +
+            "skips=${scheduler.skips}")
     }
 
     override fun onDestroy() {
@@ -151,5 +185,6 @@ class GuidanceService : LifecycleService() {
         private const val CHANNEL_ID = "guidance"
         private const val NOTIFICATION_ID = 1
         private const val DETECTOR_MANIFEST = "yolo11n-coco-320.yaml"
+        private const val REPORT_INTERVAL_MS = 5_000L
     }
 }
