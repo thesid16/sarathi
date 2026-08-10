@@ -268,6 +268,8 @@ class ModelManifest:
     attribution: str | None = None
     notes: str | None = None
     perf: dict[str, Any] = field(default_factory=dict)
+    #: Per-format patches to `input`, keyed by file format (onnx, tflite, ...).
+    input_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: True when the runtime library supplies its own weights, so there is no
     #: file for the registry to locate or checksum.
     vendored_weights: bool = False
@@ -306,6 +308,24 @@ class ModelManifest:
         input_spec = None
         if "input" in data:
             input_spec = InputSpec.from_dict(data["input"], where)
+
+        # Per-format overrides. The same model exported to two runtimes can
+        # genuinely differ: onnx2tf rewrites NCHW to NHWC, because that is what
+        # TFLite kernels want. Everything else - size, colour order, scale,
+        # mean/std, resize - stays identical, so overriding beats duplicating
+        # the whole block and letting the two drift.
+        raw_overrides = data.get("input_overrides") or {}
+        if not isinstance(raw_overrides, dict):
+            raise ManifestError(f"{where}: input_overrides must be a mapping of format -> fields")
+        overrides: dict[str, dict[str, Any]] = {}
+        for fmt, patch in raw_overrides.items():
+            if not isinstance(patch, dict):
+                raise ManifestError(f"{where}.input_overrides.{fmt}: must be a mapping")
+            if input_spec is None:
+                raise ManifestError(
+                    f"{where}: input_overrides needs a base `input` section to override"
+                )
+            overrides[str(fmt)] = patch
         output_spec = None
         if "output" in data:
             output_spec = OutputSpec.from_dict(data["output"], where)
@@ -340,6 +360,7 @@ class ModelManifest:
             attribution=data.get("attribution"),
             notes=data.get("notes"),
             perf=data.get("perf", {}) or {},
+            input_overrides=overrides,
             vendored_weights=vendored,
             source_path=source_path,
         )
@@ -381,6 +402,37 @@ class ModelManifest:
             f"model {self.id!r}: no weights for runtime {runtime_name!r} "
             f"(engine {engine!r}); available formats: {sorted(self.files)}"
         )
+
+    def input_for(self, runtime_name: str) -> InputSpec | None:
+        """The input spec for a runtime, with any per-format override applied.
+
+        Declaring one layout for a model exported to two runtimes is how a
+        model runs perfectly and detects nothing: an NHWC graph fed a planar
+        NCHW tensor sees the red channel as the top third of the image.
+        """
+        if self.input is None:
+            return None
+        engine = self.runtime.get(runtime_name, runtime_name)
+        fmt = _ENGINE_FORMATS.get(engine, engine)
+        patch = self.input_overrides.get(fmt) or self.input_overrides.get(engine)
+        if not patch:
+            return self.input
+
+        merged = {
+            "width": self.input.width,
+            "height": self.input.height,
+            "layout": self.input.layout.value,
+            "color": self.input.color,
+            "dtype": self.input.dtype,
+            "resize": self.input.resize.value,
+            "pad_mode": self.input.pad_mode.value,
+            "pad_value": self.input.pad_value,
+            "scale": self.input.scale,
+            "mean": list(self.input.mean),
+            "std": list(self.input.std),
+        }
+        merged.update(patch)
+        return InputSpec.from_dict(merged, f"{self.id}[{fmt}]")
 
     def describe(self) -> str:
         bits = [f"{self.id}  [{self.task.value}]"]

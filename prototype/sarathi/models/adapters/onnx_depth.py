@@ -60,7 +60,7 @@ class OnnxDepthEstimator(DepthEstimator):
         self.last_transform: Transform | None = None
 
     def warmup(self, runs: int = 2) -> None:
-        spec = self.manifest.input
+        spec = self.manifest.input_for("prototype")
         assert spec is not None
         blank = np.zeros((spec.height, spec.width, 3), dtype=np.uint8)
         for _ in range(max(1, runs)):
@@ -68,7 +68,7 @@ class OnnxDepthEstimator(DepthEstimator):
         self.last_inference_ms = 0.0
 
     def estimate(self, image: np.ndarray) -> np.ndarray:
-        spec = self.manifest.input
+        spec = self.manifest.input_for("prototype")
         assert spec is not None
 
         tensor, transform = prepare_input(image, spec)

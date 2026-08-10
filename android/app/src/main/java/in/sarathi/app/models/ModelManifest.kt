@@ -19,9 +19,28 @@ data class ModelManifest(
     val output: OutputSpec?,
     val delegates: List<String>,
     val vendoredWeights: Boolean,
+    /** Per-format patches to [input], keyed by file format. */
+    val inputOverrides: Map<String, Map<String, Any?>> = emptyMap(),
 ) {
     /** False for models whose licence bars them from a release build. */
     val loadable: Boolean get() = distribution != "excluded"
+
+    /**
+     * The input spec for a platform, with any per-format override applied.
+     *
+     * onnx2tf rewrites NCHW to NHWC because that is what TFLite kernels want,
+     * so one model exported to two runtimes genuinely has two layouts.
+     * Declaring only one is how a model runs perfectly and detects nothing: an
+     * NHWC graph fed a planar tensor sees the red channel as the top third of
+     * the image.
+     */
+    fun inputFor(platform: String = "android"): InputSpec? {
+        val base = input ?: return null
+        val engine = runtime[platform] ?: platform
+        val format = ENGINE_FORMATS[engine] ?: engine
+        val patch = inputOverrides[format] ?: inputOverrides[engine] ?: return base
+        return base.patched(patch)
+    }
 
     /** The weights file for this platform, resolved through `runtime`. */
     fun fileFor(platform: String = "android"): String? {
@@ -58,6 +77,8 @@ data class ModelManifest(
                 output = (root["output"] as? Map<String, Any?>)?.let { OutputSpec.from(it) },
                 delegates = (root["delegates"] as? List<String>) ?: emptyList(),
                 vendoredWeights = root["vendored_weights"] as? Boolean ?: false,
+                inputOverrides = (root["input_overrides"] as? Map<String, Map<String, Any?>>)
+                    ?: emptyMap(),
             )
         }
     }
@@ -85,8 +106,23 @@ data class InputSpec(
     val mean: FloatArray,
     val std: FloatArray,
 ) {
+    /** Returns a copy with only the named fields replaced. */
+    fun patched(patch: Map<String, Any?>): InputSpec = InputSpec(
+        width = (patch["width"] as? Number)?.toInt() ?: width,
+        height = (patch["height"] as? Number)?.toInt() ?: height,
+        layout = (patch["layout"] as? String)?.uppercase() ?: layout,
+        color = (patch["color"] as? String)?.uppercase() ?: color,
+        dtype = (patch["dtype"] as? String)?.lowercase() ?: dtype,
+        resize = (patch["resize"] as? String)?.lowercase() ?: resize,
+        padMode = (patch["pad_mode"] as? String)?.lowercase() ?: padMode,
+        padValue = (patch["pad_value"] as? Number)?.toInt() ?: padValue,
+        scale = (patch["scale"] as? Number)?.toFloat() ?: scale,
+        mean = patch["mean"]?.let { Companion.triple(it, 0f) } ?: mean,
+        std = patch["std"]?.let { Companion.triple(it, 1f) } ?: std,
+    )
+
     companion object {
-        private fun triple(value: Any?, default: Float): FloatArray = when (value) {
+        fun triple(value: Any?, default: Float): FloatArray = when (value) {
             is Number -> floatArrayOf(value.toFloat(), value.toFloat(), value.toFloat())
             is List<*> -> FloatArray(3) { i -> (value.getOrNull(i) as? Number)?.toFloat() ?: default }
             else -> floatArrayOf(default, default, default)

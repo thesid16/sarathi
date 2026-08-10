@@ -30,7 +30,8 @@ class LiteRtDetector private constructor(
     private val hazards: Map<String, Hazard>,
     private val bridge: Map<String, String>,
 ) {
-    private val spec: InputSpec = manifest.input ?: error("${manifest.id}: no input spec")
+    private val spec: InputSpec = manifest.inputFor("android")
+        ?: error("${manifest.id}: no input spec")
     private val out = manifest.output ?: error("${manifest.id}: no output spec")
     private val inputBuffer: ByteBuffer =
         ByteBuffer.allocateDirect(4 * 3 * spec.width * spec.height).order(ByteOrder.nativeOrder())
@@ -198,6 +199,16 @@ class LiteRtDetector private constructor(
         private const val TAG = "SarathiDetector"
 
         /**
+         * Loads weights according to the manifest's own distribution policy.
+         *
+         * `bundled` models are memory-mapped straight out of the APK - the
+         * packager is told not to compress .tflite, so the interpreter maps
+         * the asset in place with no copy and no decompress-to-disk on first
+         * run. `user_download` models live in filesDir, because they are
+         * fetched after install: the large ones would make the app
+         * uninstallable for users on 4 GB phones and metered connections if
+         * they shipped inside it.
+         *
          * @return null when the weights are absent. The app then runs with the
          * camera, scheduler and speech alive but no detections, which is a far
          * better failure than refusing to start - and makes it obvious that a
@@ -218,14 +229,19 @@ class LiteRtDetector private constructor(
                 Log.w(TAG, "${manifest.id} has no android weights declared")
                 return null
             }
-            val model = java.io.File(context.filesDir, "models/$fileName")
-            if (!model.exists()) {
-                Log.w(TAG, "model not installed: ${model.absolutePath}")
+
+            val buffer = if (manifest.distribution == "bundled") {
+                mapFromAssets(context, "models/$fileName")
+                    ?: mapFromFiles(context, fileName)   // sideloaded during development
+            } else {
+                mapFromFiles(context, fileName)
+            }
+            if (buffer == null) {
+                Log.w(TAG, "weights not found for ${manifest.id}: $fileName " +
+                    "(distribution=${manifest.distribution})")
                 return null
             }
-            val buffer = java.io.FileInputStream(model).use { input ->
-                input.channel.map(FileChannel.MapMode.READ_ONLY, 0, model.length())
-            }
+
             val options = Interpreter.Options().apply {
                 numThreads = 4
                 // Delegate selection is benchmarked on first run rather than
@@ -234,6 +250,25 @@ class LiteRtDetector private constructor(
                 // not a guess.
             }
             return LiteRtDetector(Interpreter(buffer, options), manifest, labels, hazards, bridge)
+        }
+
+        private fun mapFromAssets(context: Context, path: String): java.nio.MappedByteBuffer? =
+            runCatching {
+                context.assets.openFd(path).use { fd ->
+                    java.io.FileInputStream(fd.fileDescriptor).channel.map(
+                        FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength,
+                    )
+                }
+            }.getOrNull()
+
+        private fun mapFromFiles(context: Context, fileName: String): java.nio.MappedByteBuffer? {
+            val file = java.io.File(context.filesDir, "models/$fileName")
+            if (!file.exists()) return null
+            return runCatching {
+                java.io.FileInputStream(file).use { input ->
+                    input.channel.map(FileChannel.MapMode.READ_ONLY, 0, file.length())
+                }
+            }.getOrNull()
         }
     }
 }

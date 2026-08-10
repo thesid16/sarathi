@@ -397,3 +397,42 @@ def test_adapter_override_removes_a_key_it_invented():
         assert get_adapter(Task.OCR, "made-up-engine") is FakeDetector
     with pytest.raises(ManifestError, match="no adapter"):
         get_adapter(Task.OCR, "made-up-engine")
+
+
+# -- per-format input overrides ----------------------------------------------
+
+
+def test_input_for_returns_the_base_spec_when_there_is_no_override():
+    manifest = ModelManifest.from_dict(VALID)
+    assert manifest.input_for("prototype") == manifest.input
+
+
+def test_a_tflite_export_can_declare_a_different_layout():
+    """onnx2tf rewrites NCHW to NHWC because that is what TFLite kernels want.
+    Declaring one layout for both is how a model runs perfectly and detects
+    nothing - an NHWC graph fed a planar tensor sees the red channel as the top
+    third of the image."""
+    data = {
+        **VALID,
+        "runtime": {"prototype": "onnxruntime", "android": "litert"},
+        "files": {"onnx": "m.onnx", "tflite": "m.tflite"},
+        "input_overrides": {"tflite": {"layout": "NHWC"}},
+    }
+    manifest = ModelManifest.from_dict(data)
+    assert manifest.input_for("prototype").layout is Layout.NCHW
+    assert manifest.input_for("android").layout is Layout.NHWC
+    # everything else must be inherited, not reset to defaults
+    assert manifest.input_for("android").width == 320
+    assert manifest.input_for("android").resize is Resize.LETTERBOX
+
+
+def test_an_override_without_a_base_input_is_rejected():
+    data = {k: v for k, v in VALID.items() if k != "input"}
+    data = {**data, "task": "depth", "input_overrides": {"tflite": {"layout": "NHWC"}}}
+    with pytest.raises(ManifestError, match="needs a base `input` section"):
+        ModelManifest.from_dict(data)
+
+
+def test_a_malformed_override_is_rejected():
+    with pytest.raises(ManifestError, match="input_overrides"):
+        ModelManifest.from_dict({**VALID, "input_overrides": ["not", "a", "mapping"]})

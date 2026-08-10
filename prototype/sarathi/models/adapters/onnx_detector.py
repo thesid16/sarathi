@@ -77,7 +77,7 @@ class OnnxDetector(Detector):
         but a mismatch means every published latency figure is for a different
         resolution than the manifest claims, so it must not pass silently.
         """
-        spec = self.manifest.input
+        spec = self.manifest.input_for("prototype")
         assert spec is not None
         concrete = [d for d in graph_shape if isinstance(d, int) and d > 0]
         if spec.width in concrete and spec.height in concrete:
@@ -95,7 +95,7 @@ class OnnxDetector(Detector):
         )
 
     def warmup(self, runs: int = 2) -> None:
-        spec = self.manifest.input
+        spec = self.manifest.input_for("prototype")
         assert spec is not None
         blank = np.zeros((spec.height, spec.width, 3), dtype=np.uint8)
         for _ in range(max(1, runs)):
@@ -103,7 +103,7 @@ class OnnxDetector(Detector):
         self.last_inference_ms = 0.0
 
     def detect(self, image: np.ndarray) -> list[Detection]:
-        spec = self.manifest.input
+        spec = self.manifest.input_for("prototype")
         out_spec = self.manifest.output
         assert spec is not None and out_spec is not None
 

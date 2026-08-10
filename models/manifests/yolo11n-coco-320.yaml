@@ -29,7 +29,16 @@ files:
     sha256: 2f383662ba435b9c9a2531fd4157b62aa56b12da7e99ee1bae3c8aebab3a044d
     size_bytes: 10575771
     url: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt
-  # tflite entry is added by the export step in training/export/.
+  tflite:
+    path: yolo11n-320-fp16.tflite
+    url: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt
+
+# onnx2tf rewrites NCHW to NHWC, because that is the layout TFLite kernels
+# want. Everything else about the input is identical, so only the layout is
+# overridden rather than duplicating the whole block and letting the two drift.
+input_overrides:
+  tflite:
+    layout: NHWC
 
 input:
   width: 320
