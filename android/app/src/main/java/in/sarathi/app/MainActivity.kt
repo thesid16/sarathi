@@ -107,9 +107,24 @@ class MainActivity : AppCompatActivity() {
      * in a pocket. Volume-down starts and stops; volume-up is reserved for the
      * on-demand OCR and scene-description triggers.
      */
+    /**
+     * Ask the running service what is in front of the user.
+     *
+     * Deliberately silent when guidance is not running: pressing volume-up on a
+     * stopped app should not spin up a camera and a two-gigabyte model. Start
+     * it first, with the button that starts it.
+     */
+    private fun describe() {
+        if (!running) return
+        startService(
+            Intent(this, GuidanceService::class.java).setAction(GuidanceService.ACTION_DESCRIBE)
+        )
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         return when (keyCode) {
             KeyEvent.KEYCODE_VOLUME_DOWN -> { toggle(); true }
+            KeyEvent.KEYCODE_VOLUME_UP -> { describe(); true }
             else -> super.onKeyDown(keyCode, event)
         }
     }

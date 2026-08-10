@@ -23,7 +23,11 @@ attribution: "Depth Anything V2 (Small), Apache-2.0"
 
 runtime:
   prototype: onnxruntime
-  android: litert
+  # No `android` entry, deliberately. There is no TFLite export of this model
+  # in the repository, and a manifest that names a runtime it cannot serve is
+  # a promise the loader discovers is empty at run time. The depth tier is
+  # prototype-only today for a second reason as well - it is disabled by
+  # default pending the floor-versus-smooth-surface work in docs/01.
 
 files:
   onnx:

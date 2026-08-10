@@ -105,3 +105,10 @@ system:
   nothing_ahead: "Nothing ahead"
   reading: "Reading"
   no_text: "No text found"
+  describing: "Looking"
+  no_description: "Cannot describe that"
+  vlm_missing: "Scene description is not installed"
+  # Sent to the model, not spoken. Kept beside the spoken phrases because it is
+  # the same translation job: the answer comes back in the language it is asked
+  # in, so this is what makes a Hindi user get a Hindi description.
+  describe_prompt: "What is in front of me right now?"

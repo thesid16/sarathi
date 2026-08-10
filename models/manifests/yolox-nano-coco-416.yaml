@@ -21,7 +21,10 @@ attribution: "YOLOX by Megvii Inc., Apache-2.0"
 
 runtime:
   prototype: onnxruntime
-  android: litert
+  # Prototype only. This model exists here as the permissive-licence
+  # alternative the detector was benchmarked against, not as something that
+  # ships - so it has never been exported to TFLite, and claiming an android
+  # runtime would be claiming a file that does not exist.
 
 files:
   onnx:

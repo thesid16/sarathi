@@ -53,6 +53,13 @@ data class ModelManifest(
         private val ENGINE_FORMATS = mapOf(
             "litert" to "tflite",
             "tflite" to "tflite",
+            // LiteRT-LM is a separate runtime with its own container format,
+            // not a variant of LiteRT. This table must stay identical to
+            // _ENGINE_FORMATS in prototype/sarathi/models/manifest.py - the two
+            // parsers reading one manifest differently is the failure this
+            // whole design exists to prevent.
+            "litert-lm" to "litertlm",
+            "litertlm" to "litertlm",
             "onnxruntime" to "onnx",
             "onnx" to "onnx",
         )

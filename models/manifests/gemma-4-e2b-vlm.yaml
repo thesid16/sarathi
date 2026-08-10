@@ -5,18 +5,17 @@
 # downstream. AGPL-3.0 cannot absorb additional restrictions, so bundling those
 # weights would have muddied Sarathi's own licence, and this manifest said so.
 #
-# Gemma 4 (released 2 April 2026) is **Apache 2.0**. Verified against Google's
-# own model card and the Hugging Face release. That constraint is simply gone -
-# it can be bundled and redistributed like any other permissive model, and the
-# "Gemma terms" item raised for legal review is closed.
+# Gemma 4 (released 2 April 2026) is **Apache 2.0**. Verified against the
+# Hugging Face release metadata, which also reports the repository as ungated.
+# That constraint is simply gone - it can be bundled and redistributed like any
+# other permissive model, and the "Gemma terms" item raised for legal review is
+# closed.
 #
 # distribution stays `user_download`, but now for a completely different and
-# much more ordinary reason: SIZE. E2B is 2.3B effective parameters (5.1B with
-# embeddings), which is a multi-gigabyte download even quantized. Much of the
-# target audience is on 4 GB phones and metered connections; forcing that on
-# everyone would make the app uninstallable for the people who need it most.
-# A licensing blocker became a product decision, which is a much better place
-# to be.
+# much more ordinary reason: SIZE. The GPU build is 1.9 GB. Much of the target
+# audience is on 4 GB phones and metered connections; forcing that on everyone
+# would make the app uninstallable for the people who need it most. A licensing
+# blocker became a product decision, which is a much better place to be.
 
 id: gemma-4-e2b-vlm
 task: vlm
@@ -25,35 +24,78 @@ version: 4.0.0
 
 license: Apache-2.0
 distribution: user_download
-source_url: https://huggingface.co/google/gemma-4-E2B-it
+source_url: https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm
 attribution: "Gemma 4 by Google DeepMind, Apache-2.0"
 
 runtime:
-  android: litert
-  prototype: onnxruntime
+  android: litert-lm
+  prototype: litert-lm
 
 files:
+  # The base build, NOT the one named "-gpu".
+  #
+  # This cost 1.9 GB of download to learn. The `-gpu` build looks like the
+  # obvious choice - smaller, and named after the backend the vendor recommends
+  # - and it loads happily on a Pixel 8a in 11 s. It then fails at the moment
+  # the image is attached, with `NOT_FOUND: TF_LITE_VISION_ENCODER`, because it
+  # is a text-only decoder. Its model card does not say so; the container does.
+  # A .litertlm lists its section names in the first kilobyte:
+  #
+  #   gemma-4-E2B-it-gpu.litertlm   tf_lite_artisan_text_decoder
+  #   gemma-4-E2B-it.litertlm       tf_lite_vision_encoder, tf_lite_vision_adapter,
+  #                                 tf_lite_audio_encoder_hw, tf_lite_prefill_decode,
+  #                                 tf_lite_per_layer_embedder, tf_lite_mtp_drafter
+  #
+  # Check before downloading, with a 4 KB range request:
+  #   curl -sL -r 0-4096 <url> | strings | grep tf_lite
+  #
+  # The app performs the same check at load time rather than discovering it
+  # eleven seconds into a request the user is waiting on.
+  #
+  # Note the irony recorded in docs/03-optimization.md: the same OpenCL stack
+  # that miscomputes the *detector* under the LiteRT GPU delegate is the
+  # supported path for this model under LiteRT-LM. "The GPU works" is not a
+  # property of a device. It is a property of a graph on a device on a runtime
+  # version, which is why everything here gets verified rather than assumed.
   litertlm:
     path: gemma-4-E2B-it.litertlm
-  onnx:
-    path: gemma-4-E2B-it.onnx
+    size_bytes: 2587459584
+    url: https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm
+
+  # Other builds in the same repository, listed so nobody has to go looking:
+  #   gemma-4-E2B-it-gpu.litertlm              1.9 GB  TEXT ONLY, no vision
+  #   gemma-4-E2B-it-web.litertlm              2.0 GB  text only, per the card
+  #   gemma-4-E2B-it_Google_Tensor_G5.litertlm         NPU, Pixel 10 only
+  #   gemma-4-E2B-it_qualcomm_sm8750.litertlm          NPU, Snapdragon 8 Elite
+  #
+  # There is no Tensor G3 NPU build, so the Pixel 8a this project develops on
+  # cannot reach its TPU for this model either. Same conclusion as the detector,
+  # arrived at by a different route.
 
 requirements:
-  # E2B is reported to run on a Raspberry Pi 5 with 8 GB. The Pixel 8a has
-  # 8 GB, so it is a viable development target - and a bad default, because
-  # most of the audience does not have 8 GB.
+  # The vendor reports 676 MB resident on the GPU backend. Add the model map,
+  # the detector, the camera pipeline and the OS, and 6 GB is the floor at
+  # which this is worth offering at all.
   min_ram_gb: 6
 
+backends: [gpu, cpu]
+
+# Not a detector, so no input/output block: LiteRT-LM owns tokenisation, image
+# encoding and sampling. The manifest's job here is provenance, licence,
+# distribution policy and the file to fetch.
+
 notes: >
-  Multimodal: image, audio and video input on the E-series, 128k context.
-  Only image input is used here.
+  Multimodal: image, audio and video input on the E-series, 128k context. Only
+  image input is used here.
 
   E2B and E4B use Per-Layer Embeddings, so active compute is well below the
   total parameter count - which is the whole reason an E-series model is
-  plausible on a phone at all.
+  plausible on a phone at all. LiteRT-LM keeps the PLEs out of memory and loads
+  the vision encoder only when an image is actually attached, which is what
+  makes the on-demand design below affordable.
 
-  NOT YET BENCHMARKED. No latency, memory or quality number for this model
-  appears anywhere in this project, and none should until it has been run on a
-  Pixel 8a. The scene-description slot is defined by the SceneDescriber
-  interface, so this drops in beside a smaller default without any code change
-  - which is exactly what the manifest system exists for.
+  **This model is never on the safety path.** It is slow, it is asked for
+  explicitly, and it can be wrong in fluent and convincing sentences. Hazards
+  come from the detector and the geometric estimator, which are bounded and
+  measured. Gemma answers "what does this look like?" when the user asks;
+  nothing waits on it and nothing is warned by it. See docs/05-vlm.md.

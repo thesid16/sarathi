@@ -31,7 +31,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+    // Kotlin 2.3 removed the kotlinOptions DSL. Forced here rather than
+    // chosen: LiteRT-LM 0.15.0 ships Kotlin 2.3 metadata, which a 2.1 compiler
+    // refuses to read at all.
+    kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
     buildFeatures { viewBinding = false }
 
     // Model files are already compressed; letting the packager re-compress
@@ -78,6 +81,12 @@ dependencies {
     // LiteRT (formerly TFLite). GPU delegate is a separate artifact.
     implementation("com.google.ai.edge.litert:litert:1.2.0")
     implementation("com.google.ai.edge.litert:litert-gpu:1.2.0")
+
+    // LiteRT-LM, for on-demand scene description with Gemma 4. Pinned rather
+    // than `latest.release`: this project publishes measured numbers, and a
+    // number is meaningless if the runtime that produced it can change under
+    // the build.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.15.0")
 
     // YAML, so the phone reads the same manifests and phrase tables the
     // prototype does rather than a hand-maintained Kotlin copy.

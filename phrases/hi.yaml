@@ -144,6 +144,12 @@ system:
   nothing_ahead: "सामने कुछ नहीं"
   reading: "पढ़ रहा हूँ"
   no_text: "कोई लेख नहीं मिला"
+  describing: "देख रहा हूँ"
+  no_description: "बता नहीं सकता"
+  vlm_missing: "दृश्य वर्णन इंस्टॉल नहीं है"
+  # मॉडल को भेजा जाता है, बोला नहीं जाता। उत्तर उसी भाषा में आता है जिसमें
+  # पूछा जाए, इसलिए हिंदी वर्णन इसी पंक्ति से मिलता है।
+  describe_prompt: "मेरे सामने अभी क्या है?"
 
 # Terms with no settled everyday Hindi equivalent, where I have coined or
 # borrowed something. A native speaker should confirm these before release.

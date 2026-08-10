@@ -451,6 +451,11 @@ _ENGINE_FORMATS = {
     "onnx": "onnx",
     "litert": "tflite",
     "tflite": "tflite",
+    # LiteRT-LM is a separate runtime from LiteRT with its own container
+    # format, not a variant of it. Mapping it onto "tflite" would have the
+    # loader hand a .litertlm path to the tensor interpreter.
+    "litert-lm": "litertlm",
+    "litertlm": "litertlm",
     "torch": "pt",
     "coreml": "mlpackage",
 }

@@ -22,6 +22,9 @@ import `in`.sarathi.app.models.SharedData
 import `in`.sarathi.app.perception.CameraModel
 import `in`.sarathi.app.perception.Geometry
 import `in`.sarathi.app.perception.LiteRtDetector
+import `in`.sarathi.app.vlm.SceneDescriber
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
 
 /**
  * Guidance as a foreground service, so it survives the screen going off.
@@ -42,6 +45,18 @@ class GuidanceService : LifecycleService() {
     private lateinit var phrases: PhraseBook
 
     private var detector: LiteRtDetector? = null
+    private var describer: SceneDescriber? = null
+
+    /**
+     * A pending "what is in front of me?" press.
+     *
+     * A flag rather than a queue, and read before the scheduler's gate rather
+     * than after. Standing still, the gate drops almost every frame and the
+     * keepalive floor is 0.2 Hz - so a request served after the gate could sit
+     * for five seconds, which to someone who just pressed a button is a broken
+     * device. Read first, it is served by the next camera frame.
+     */
+    private val describeRequested = AtomicBoolean(false)
     private var cameraModel: CameraModel? = null
     private var priors = emptyMap<String, `in`.sarathi.app.models.SizePrior>()
 
@@ -86,6 +101,18 @@ class GuidanceService : LifecycleService() {
         }
         Log.i(TAG, if (detector != null) "detector loaded: $DETECTOR_MANIFEST"
                    else "running WITHOUT a detector - camera and speech only")
+
+        // Constructed always, loaded never - the engine is built on the first
+        // press and released again when idle. The manifest is read here only so
+        // the app can answer "is it installed?" without touching LiteRT-LM.
+        describer = runCatching {
+            SceneDescriber(this, SharedData.manifest(this, VLM_MANIFEST))
+        }.getOrElse {
+            Log.w(TAG, "describer unavailable: ${it.message}")
+            null
+        }
+        Log.i(TAG, "scene description: " +
+            if (describer?.isInstalled() == true) "weights present" else "not installed")
         val surveyMarker = java.io.File(filesDir, "survey")
         if (surveyMarker.exists()) {
             surveyMarker.delete()
@@ -102,8 +129,31 @@ class GuidanceService : LifecycleService() {
         camera.start(this) { frame -> onFrame(frame) }
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        if (intent?.action == ACTION_DESCRIBE) requestDescription()
+        return START_STICKY
+    }
+
+    private fun requestDescription() {
+        val vlm = describer
+        if (vlm == null || !vlm.isInstalled()) {
+            voice.say(phrases.systemPhrase("vlm_missing"), urgent = false)
+            return
+        }
+        // Spoken before any work starts. Loading the engine alone can take ten
+        // seconds, and silence from a device you cannot look at is
+        // indistinguishable from a device that has died.
+        voice.say(phrases.systemPhrase("describing"), urgent = false)
+        describeRequested.set(true)
+    }
+
     private fun onFrame(frame: CameraSource.Frame) {
         val now = System.currentTimeMillis()
+        if (describeRequested.compareAndSet(true, false)) {
+            frame.toBitmap()?.let { serveDescription(it) }
+        }
+        describer?.trimIfIdle(now)
         val age = now - frame.timestampMs
         val decision = scheduler.decide(frame.luma, frame.width, frame.height, age, now)
         if (!decision.run) { report(now); return }
@@ -143,6 +193,25 @@ class GuidanceService : LifecycleService() {
         report(now)
     }
 
+    /**
+     * Run the VLM off the camera thread, and let guidance carry on regardless.
+     *
+     * Description takes seconds. Blocking the frame loop on it would suspend
+     * hazard detection for exactly as long - trading the safety feature for the
+     * convenience one, which is the wrong way round.
+     */
+    private fun serveDescription(bitmap: android.graphics.Bitmap) {
+        val vlm = describer ?: return
+        thread(name = "sarathi-vlm", isDaemon = true) {
+            val answer = vlm.describe(bitmap, phrases.systemPhrase("describe_prompt"))
+            bitmap.recycle()
+            // Not urgent: a hazard warning arriving mid-description should
+            // interrupt it, never the other way round.
+            voice.say(answer ?: phrases.systemPhrase("no_description"), urgent = false)
+            Log.i(TAG, "vlm load=${vlm.loadMs}ms describe=${vlm.lastDescribeMs}ms")
+        }
+    }
+
     /** One line every few seconds: what the pipeline is actually doing. */
     private fun report(now: Long) {
         if (now - lastReportAt < REPORT_INTERVAL_MS) return
@@ -160,6 +229,7 @@ class GuidanceService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        describer?.close()
         camera.stop()
         detector?.close()
         voice.say(phrases.systemPhrase("stopping"), urgent = false)
@@ -198,6 +268,10 @@ class GuidanceService : LifecycleService() {
         private const val CHANNEL_ID = "guidance"
         private const val NOTIFICATION_ID = 1
         private const val DETECTOR_MANIFEST = "yolo11n-coco-320.yaml"
+        private const val VLM_MANIFEST = "gemma-4-e2b-vlm.yaml"
+
+        /** Volume-up, forwarded from the activity. */
+        const val ACTION_DESCRIBE = "in.sarathi.app.DESCRIBE"
         private const val REPORT_INTERVAL_MS = 5_000L
     }
 }
