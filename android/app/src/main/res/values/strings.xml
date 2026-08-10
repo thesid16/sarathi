@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Sarathi</string>
+    <string name="notification_channel">Guidance</string>
+    <string name="notification_title">Sarathi is guiding</string>
+    <string name="notification_text">Screen off is fine. Volume keys control it.</string>
+
+    <!-- Every control is described for TalkBack. A blind user navigates this
+         screen by ear; a button whose only label is an icon is invisible. -->
+    <string name="start_desc">Start guidance</string>
+    <string name="stop_desc">Stop guidance</string>
+    <string name="lang_desc">Switch language between English and Hindi</string>
+    <string name="status_idle">Stopped</string>
+    <string name="status_running">Guiding</string>
+</resources>

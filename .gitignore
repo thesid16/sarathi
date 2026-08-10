@@ -40,3 +40,10 @@ android/**/build/
 
 # macOS
 .DS_Store
+
+# Android build outputs
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.kotlin/
