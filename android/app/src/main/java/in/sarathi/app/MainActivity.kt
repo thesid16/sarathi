@@ -77,6 +77,42 @@ class MainActivity : AppCompatActivity() {
         setContentView(buildUi())
         requestPermissions()
         GuidanceBus.observe(onSnapshot)
+        startIfReady()
+    }
+
+    /**
+     * Begin guiding as soon as the app can.
+     *
+     * This is an assistive tool, not a utility with modes. Someone who opens
+     * it wants it working; making them find a button first is a step that
+     * cannot be done by feel and that a blind user has no reason to expect.
+     * Volume-down still stops and starts it.
+     *
+     * Only once - a rotation or a return from the background must not restart
+     * a service that is already running, and must not override a deliberate
+     * stop.
+     */
+    private fun startIfReady() {
+        if (autoStarted || running) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED
+        ) return
+        autoStarted = true
+        toggle()
+    }
+
+    private var autoStarted = false
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // Granting camera permission is the user saying yes to the whole
+        // point of the app, so it starts there rather than making them press
+        // one more thing.
+        startIfReady()
     }
 
     override fun onResume() {

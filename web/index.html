@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sarathi — live demo</title>
+<style>
+  :root {
+    --ink: #101315; --panel: #171B1E; --rule: #262C30;
+    --paper: #E7EAE6; --muted: #7F8A8E; --amber: #E5A83C; --slate: #262C30;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--ink); color: var(--paper);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    padding: 14px 18px; border-bottom: 1px solid var(--rule);
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  h1 span { color: var(--muted); font-weight: 400; }
+  .tag {
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink); background: var(--muted); padding: 3px 9px; border-radius: 11px;
+  }
+  .tag.live { background: var(--amber); }
+
+  main { flex: 1; display: flex; min-height: 0; flex-wrap: wrap; }
+  #stage {
+    flex: 1 1 420px; min-height: 260px; position: relative;
+    background: #000; display: grid; place-items: center; overflow: hidden;
+  }
+  #video { max-width: 100%; max-height: 100%; display: block; }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  aside {
+    flex: 0 0 300px; background: var(--panel); border-left: 1px solid var(--rule);
+    padding: 16px 18px; overflow-y: auto;
+  }
+  @media (max-width: 720px) { aside { flex: 1 1 100%; border-left: none; border-top: 1px solid var(--rule); } }
+
+  #said {
+    padding: 16px 18px; font-size: 19px; min-height: 62px;
+    border-top: 1px solid var(--rule); text-wrap: balance;
+  }
+  #quiet { color: var(--muted); font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .stats { font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .stats b { color: var(--paper); font-weight: 600; }
+  h2 {
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); margin: 20px 0 8px; font-weight: 600;
+  }
+  ul { list-style: none; margin: 0; padding: 0; font: 13px/1.9 ui-monospace, Menlo, monospace; }
+  li { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+  .controls { display: flex; gap: 10px; padding: 12px 18px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-size: 15px; border: 0; border-radius: 10px;
+    padding: 13px 22px; cursor: pointer; color: var(--paper); background: var(--slate);
+    min-height: 48px;
+  }
+  button.primary { background: var(--amber); color: var(--ink); font-weight: 600; }
+  button:disabled { opacity: .4; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+  .note { color: var(--muted); font-size: 13px; padding: 0 18px 16px; max-width: 72ch; }
+  a { color: var(--amber); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Sarathi <span>सारथी · live demo</span></h1>
+  <span class="tag" id="state">loading</span>
+</header>
+
+<main>
+  <div id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <aside>
+    <div class="stats" id="stats">starting…</div>
+    <h2>Detected</h2>
+    <ul id="list"></ul>
+  </aside>
+</main>
+
+<div id="said">Point the camera ahead.<div id="quiet"></div></div>
+
+<div class="controls">
+  <button class="primary" id="toggle" disabled>Start</button>
+  <button id="speech">Speech: on</button>
+  <button id="camera">Switch camera</button>
+</div>
+
+<p class="note">
+  Runs entirely in this browser — the video never leaves the device. Same
+  YOLO11n model and the same decoding the Android app uses, so what you see
+  here is what the phone sees. No distances: without a calibrated camera and a
+  tilt sensor any number would be a guess, and a distance that cannot be
+  trusted is worse than none.
+</p>
+
+<script type="module">
+import { letterbox, decode, nms, rank, bearingPhrase } from "./sarathi.js";
+
+const SIZE = 320;
+const el = (id) => document.getElementById(id);
+const video = el("video"), overlay = el("overlay"), ctx = overlay.getContext("2d");
+const work = Object.assign(document.createElement("canvas"), { width: SIZE, height: SIZE })
+  .getContext("2d", { willReadFrequently: true });
+
+let session = null, labels = [], running = false, stream = null;
+let facing = "environment", speech = true, lastSpoken = "", lastSpokenAt = 0;
+let frames = 0, inferMs = 0, started = 0;
+
+// Loaded from a CDN so the page works when simply opened or hosted. If you
+// need it fully offline - which is the product's whole premise, just not this
+// demo's - vendor ort.min.js and the .wasm files next to this file and point
+// the import below at them.
+// Pinned, and the exact filenames verified against the CDN's own file list -
+// the obvious `esm/ort.min.js` path does not exist in this release and 404s,
+// which would have shown up only as a blank page in a browser.
+const ORT_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/";
+const ort = await import(ORT_BASE + "ort.webgpu.min.mjs")
+  .catch(() => import(ORT_BASE + "ort.min.mjs"));
+ort.env.wasm.wasmPaths = ORT_BASE;
+
+function setState(text, live) {
+  el("state").textContent = text;
+  el("state").classList.toggle("live", !!live);
+}
+
+async function load() {
+  setState("loading model");
+  labels = (await (await fetch("model/coco80.txt")).text())
+    .split("\n").map((s) => s.trim()).filter((s) => s && !s.startsWith("#"));
+  // WebGPU where it exists, WASM everywhere else. The phone learned the hard
+  // way that a fast backend can be a wrong one, so if a future version of this
+  // demo starts disagreeing with the app, suspect the backend first.
+  session = await ort.InferenceSession.create("model/yolo11n-320.onnx", {
+    executionProviders: ["webgpu", "wasm"],
+  });
+  el("toggle").disabled = false;
+  setState("ready");
+}
+
+async function openCamera() {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 } },
+    audio: false,
+  });
+  video.srcObject = stream;
+  await video.play();
+  overlay.width = video.videoWidth;
+  overlay.height = video.videoHeight;
+}
+
+function say(text) {
+  if (!speech || !window.speechSynthesis) return;
+  const now = performance.now();
+  // Drop, do not queue. A backlog describes a scene the user has walked out
+  // of, which is the rule the whole product is built on.
+  if (window.speechSynthesis.speaking) return;
+  if (text === lastSpoken && now - lastSpokenAt < 8000) return;
+  lastSpoken = text; lastSpokenAt = now;
+  window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+}
+
+function draw(dets) {
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+  ctx.lineWidth = 3;
+  ctx.font = "600 15px ui-monospace, Menlo, monospace";
+  for (const d of dets) {
+    const [x1, y1, x2, y2] = d.box;
+    ctx.strokeStyle = d.colour;
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    const caption = `${d.label} ${d.score.toFixed(2)}`;
+    const w = ctx.measureText(caption).width + 12;
+    const top = y1 > 22 ? y1 - 20 : y2 + 2;
+    ctx.fillStyle = d.colour;
+    ctx.fillRect(Math.min(x1, overlay.width - w), top, w, 19);
+    ctx.fillStyle = "#101315";
+    ctx.fillText(caption, Math.min(x1, overlay.width - w) + 6, top + 14);
+  }
+}
+
+async function loop() {
+  if (!running) return;
+  if (video.readyState >= 2) {
+    const t = letterbox(video, SIZE, work);
+    const began = performance.now();
+    const out = await session.run({
+      [session.inputNames[0]]: new ort.Tensor("float32", t.tensor, [1, 3, SIZE, SIZE]),
+    });
+    inferMs = performance.now() - began;
+    frames++;
+
+    const head = out[session.outputNames[0]];
+    const { candidates, maxScore } = decode(head.data, head.dims, labels);
+    const dets = nms(candidates, t, overlay.width, overlay.height);
+    draw(dets);
+
+    const { chosen, reason } = rank(dets, overlay.width, overlay.height);
+    if (chosen) {
+      const text = `${chosen.label} ${bearingPhrase(chosen.box, overlay.width)}`;
+      el("said").firstChild.textContent = `“${text}”`;
+      el("quiet").textContent = "";
+      say(text);
+    } else {
+      el("quiet").textContent = `quiet — ${reason}`;
+    }
+
+    el("list").innerHTML = dets.map((d) =>
+      `<li><span class="dot" style="background:${d.colour}"></span>${d.label} ${d.score.toFixed(2)}</li>`
+    ).join("") || '<li style="color:var(--muted)">nothing detected</li>';
+
+    const fps = frames / Math.max(0.001, (performance.now() - started) / 1000);
+    el("stats").innerHTML =
+      `yolo11n-coco-320<br><b>${inferMs.toFixed(0)}</b> ms inference<br>` +
+      `<b>${fps.toFixed(1)}</b> fps<br><b>${dets.length}</b> detected<br>` +
+      `peak score <b>${maxScore.toFixed(2)}</b>`;
+  }
+  requestAnimationFrame(loop);
+}
+
+el("toggle").onclick = async () => {
+  if (running) {
+    running = false;
+    stream?.getTracks().forEach((t) => t.stop());
+    stream = null;
+    el("toggle").textContent = "Start";
+    setState("stopped");
+    return;
+  }
+  try {
+    await openCamera();
+  } catch (err) {
+    el("said").firstChild.textContent = `Camera unavailable: ${err.message}`;
+    return;
+  }
+  running = true; frames = 0; started = performance.now();
+  el("toggle").textContent = "Stop";
+  setState("live", true);
+  loop();
+};
+
+el("speech").onclick = (e) => {
+  speech = !speech;
+  if (!speech) window.speechSynthesis?.cancel();
+  e.target.textContent = `Speech: ${speech ? "on" : "off"}`;
+};
+
+el("camera").onclick = async () => {
+  facing = facing === "environment" ? "user" : "environment";
+  if (running) await openCamera();
+};
+
+load().catch((err) => {
+  setState("failed");
+  el("said").firstChild.textContent = `Could not load the model: ${err.message}`;
+});
+</script>
+</body>
+</html>

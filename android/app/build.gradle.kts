@@ -17,10 +17,37 @@ android {
         versionName = "0.1.0"
     }
 
+    // Signed with a key committed to this repository, on purpose.
+    //
+    // Sarathi is not distributed through a store, and the people it is for are
+    // handed an APK by a teacher, an NGO or a friend. An unsigned build simply
+    // will not install, and "generate your own keystore first" is a barrier
+    // that stops the handover entirely. The key proves nothing about identity
+    // here - anyone can rebuild - and its only job is to satisfy the installer
+    // and let updates replace the previous version rather than fail with a
+    // signature mismatch.
+    //
+    // Anyone shipping this seriously should replace it and keep it private.
+    signingConfigs {
+        create("public") {
+            storeFile = file("../sarathi-release.jks")
+            storePassword = "sarathi-public"
+            keyAlias = "sarathi"
+            keyPassword = "sarathi-public"
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("public")
+            // Shrinking is off. R8 strips classes that are only reached
+            // reflectively, and this app resolves adapters and YAML types that
+            // way; a stripped release that crashes on a model the debug build
+            // handles is exactly the failure this project keeps having to hunt,
+            // and the APK is dominated by native libraries R8 cannot touch
+            // anyway. Correct and 96 MB beats clever and broken.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
         debug {
             isMinifyEnabled = false

@@ -380,3 +380,12 @@ it is not an STMicroelectronics product and carries no endorsement from them.
 Built for the people who'll use it. If you work in accessibility and something
 here is wrong, please open an issue — being corrected is cheaper than shipping
 a bad aid.
+
+## Get it
+
+| | |
+|---|---|
+| **Android** | [`sarathi.apk`](sarathi.apk) — install and it starts. [Full instructions](INSTALL.md) |
+| **Browser** | `cd web && python3 -m http.server 8000` — no install, video never leaves the device |
+| **Desktop** | double-click `run-desktop.command` — the real pipeline in a window |
+| **Changing it** | [Edit guide](docs/09-edit-guide.md) — what to edit, what to run, what will bite you |

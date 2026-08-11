@@ -47,3 +47,14 @@ android/build/
 android/app/build/
 android/local.properties
 android/.kotlin/
+
+# The web demo's copy of the detector. 10 MB, and reproducible from
+# models/weights - but committed anyway, because a demo that needs a build step
+# before it will open is not a demo. See web/README.md.
+!web/model/*.onnx
+!web/model/*.txt
+
+# The shipped APK. Committed deliberately: this project is handed to people as
+# a file, not through a store, and "build it yourself first" is where the
+# handover stops. 92 MB, mostly LiteRT-LM native libraries.
+!sarathi.apk
