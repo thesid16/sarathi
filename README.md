@@ -164,11 +164,19 @@ drives the **real pipeline** — same detector, same geometry, same saliency and
 phrasing that run on the phone, reading the same manifests — and draws what it
 sees:
 
+**Double-click `run-desktop.command`** in the repository root. That is the whole
+setup — it handles the path, checks the virtualenv, and starts the camera.
+
+From a terminal, note the quotes: the repository path contains a space, and
+without them the shell reports a missing directory rather than a quoting
+problem.
+
 ```bash
-cd prototype
+cd "path/to/STM Vission App/prototype"
 .venv/bin/python -m sarathi.desktop                     # your webcam
 .venv/bin/python -m sarathi.desktop --source walk.mp4   # a recorded walk
 .venv/bin/python -m sarathi.desktop --speak             # with the voice
+.venv/bin/python -m sarathi.desktop --no-autostart      # open idle
 ```
 
 Boxes coloured by hazard, the distance it computed, what it chose to say and

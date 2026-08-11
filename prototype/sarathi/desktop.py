@@ -128,7 +128,7 @@ class DesktopApp:
         # What it said, given the largest type on the screen, because it is the
         # product's actual output. Everything else is diagnostics.
         self.spoken = tk.Label(
-            left, text="Press Start, then point the camera ahead.",
+            left, text="Point the camera ahead.",
             bg=INK, fg=PAPER, font=("TkDefaultFont", 17), anchor="w", justify="left",
             wraplength=760, padx=4, pady=12,
         )
@@ -472,6 +472,13 @@ class DesktopApp:
 
     def run(self) -> None:
         self.root.after(60, self._tick)
+        if self.args.autostart:
+            # Straight into the live view. This is a demonstration tool - a
+            # window that opens idle and waits to be told to begin makes the
+            # first ten seconds of every demo a hunt for a button, in front of
+            # an audience. --no-autostart for the times you want to choose a
+            # model or a source first.
+            self.root.after(120, self._start)
         self.root.mainloop()
 
 
@@ -485,6 +492,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--depth", default=None, help="depth manifest id, or omit for none")
     parser.add_argument("--lang", default="en", choices=("en", "hi"))
     parser.add_argument("--speak", action="store_true", help="speak out loud as well as show")
+    parser.add_argument(
+        "--no-autostart", dest="autostart", action="store_false",
+        help="open idle instead of starting the camera immediately",
+    )
+    parser.set_defaults(autostart=True)
     parser.add_argument("--max-hz", type=float, default=8.0)
     # Matched to PipelineConfig and Android's CameraModel, not chosen
     # separately. Different defaults here would mean the window on stage shows
