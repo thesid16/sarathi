@@ -70,8 +70,35 @@ class Voice(context: Context, private val onReady: (Boolean) -> Unit = {}) {
     val isSpeaking: Boolean get() = tts?.isSpeaking == true
 
     /** @return true if it was spoken, false if dropped. */
-    fun say(text: String, urgent: Boolean, earcon: Boolean = false): Boolean {
+    /**
+     * @param answer this utterance answers a question the user asked, so it is
+     * queued rather than dropped.
+     *
+     * Drop-don't-queue is the right rule for hazard announcements: by the time
+     * a delayed one plays it describes a scene the user has walked past. It is
+     * the wrong rule for a reply to a button press. Reading a sign takes about
+     * 700 ms and the acknowledgement "Reading" takes about the same, so the
+     * answer arrived while the acknowledgement was still playing and was
+     * discarded every single time - the text appeared on screen and the phone
+     * said nothing, which for a blind user means the feature does not exist.
+     *
+     * An answer is never stale: the user is standing still waiting for it.
+     */
+    fun say(
+        text: String,
+        urgent: Boolean,
+        earcon: Boolean = false,
+        answer: Boolean = false,
+    ): Boolean {
         if (!ready || text.isBlank()) return false
+        if (answer && !urgent) {
+            // Appended, so it follows the acknowledgement instead of racing it,
+            // and follows a hazard warning rather than cutting one off.
+            speak(text, TextToSpeech.QUEUE_ADD)
+            spokenCount++
+            android.util.Log.i(TAG, "answer queued: \"${text.take(60)}\"")
+            return true
+        }
         if (urgent) {
             if (isSpeaking) { tts?.stop(); interruptedCount++ }
             if (earcon) tone.startTone(ToneGenerator.TONE_PROP_BEEP2, 140)
@@ -83,6 +110,7 @@ class Voice(context: Context, private val onReady: (Boolean) -> Unit = {}) {
             // Not queued: by the time it could play it would describe a scene
             // the user has walked past.
             droppedCount++
+            android.util.Log.i(TAG, "dropped (busy): \"${text.take(40)}\"")
             return false
         }
         speak(text, TextToSpeech.QUEUE_FLUSH)

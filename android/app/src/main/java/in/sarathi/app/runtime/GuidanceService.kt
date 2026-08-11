@@ -226,8 +226,8 @@ class GuidanceService : LifecycleService() {
                 it.copy(busy = "", lastSpoken = text ?: "(no text found)",
                     lastSpokenAtMs = System.currentTimeMillis())
             }
-            voice.say(text ?: phrases.systemPhrase("no_text"), urgent = false)
-            Log.i(TAG, "ocr ${ocr.lastReadMs}ms")
+            voice.say(text ?: phrases.systemPhrase("no_text"), urgent = false, answer = true)
+            Log.i(TAG, "ocr ${ocr.lastReadMs}ms spoken=${(text ?: "").take(40)}")
         }
     }
 
@@ -367,7 +367,11 @@ class GuidanceService : LifecycleService() {
             }
             // Not urgent: a hazard warning arriving mid-description should
             // interrupt it, never the other way round.
-            voice.say(answer ?: phrases.systemPhrase("no_description"), urgent = false)
+            voice.say(
+                answer ?: phrases.systemPhrase("no_description"),
+                urgent = false,
+                answer = true,
+            )
             Log.i(TAG, "vlm backend=${vlm.backend} load=${vlm.loadMs}ms " +
                 "describe=${vlm.lastDescribeMs}ms")
         }

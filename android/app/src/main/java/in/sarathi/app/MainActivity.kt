@@ -238,7 +238,9 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(MATCH, WRAP)
             setPadding(dp(12), 0, dp(12), dp(8))
         }
-        describeButton = actionButton(getString(R.string.describe_label), SLATE) { send(GuidanceService.ACTION_DESCRIBE) }
+        describeButton = actionButton(getString(R.string.describe_label), SLATE) {
+            if (vlmAvailable()) send(GuidanceService.ACTION_DESCRIBE) else explainMissingVlm()
+        }
         readButton = actionButton(getString(R.string.read_label), SLATE) { send(GuidanceService.ACTION_READ) }
         row.addView(describeButton)
         row.addView(readButton)
@@ -312,7 +314,10 @@ class MainActivity : AppCompatActivity() {
         // indistinguishable from a broken one to someone who just pressed it,
         // and both on-demand tiers can start guidance themselves - so the only
         // genuine blocker is weights that are not installed.
-        setEnabled(describeButton, vlmAvailable())
+        // Enabled either way: pressing it when the model is absent explains
+        // where to put it, which is more use than a control that cannot be
+        // pressed and cannot say why.
+        setEnabled(describeButton, true)
         setEnabled(readButton, true)
         setEnabled(modelButton, !live)
         modelButton.text = getString(R.string.model_label)
@@ -540,12 +545,37 @@ class MainActivity : AppCompatActivity() {
         }, 1_200)
     }
 
-    /** Whether the scene-description weights are on this device. */
+    /**
+     * Whether the scene-description weights are on this device.
+     *
+     * Checks the same places `SceneDescriber` does - private storage first,
+     * then app-specific external storage, which is the only one a release
+     * build can actually receive a file into.
+     */
     private fun vlmAvailable(): Boolean = runCatching {
         val manifest = SharedData.manifest(this, "gemma-4-e2b-vlm.yaml")
-        val file = manifest.fileFor("android") ?: return false
-        java.io.File(java.io.File(filesDir, "models"), file).exists()
+        val name = manifest.fileFor("android") ?: return false
+        vlmSearchPaths(name).any { it.exists() }
     }.getOrDefault(false)
+
+    private fun vlmSearchPaths(name: String): List<java.io.File> = listOfNotNull(
+        java.io.File(java.io.File(filesDir, "models"), name),
+        getExternalFilesDir("models")?.let { java.io.File(it, name) },
+        getExternalFilesDir(null)?.let { java.io.File(it, name) },
+    )
+
+    /** Tell the user where to put the file, rather than only that it is absent. */
+    private fun explainMissingVlm() {
+        val target = getExternalFilesDir("models")?.absolutePath ?: "(external storage unavailable)"
+        AlertDialog.Builder(this)
+            .setTitle(R.string.describe_label)
+            .setMessage(
+                getString(R.string.vlm_missing_detail) + "\n\n" + target +
+                    "\n\nadb push gemma-4-E2B-it.litertlm \\\n  " + target + "/"
+            )
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
 
     private fun requestPermissions() {
         val needed = buildList {

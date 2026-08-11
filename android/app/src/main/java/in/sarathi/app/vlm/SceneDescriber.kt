@@ -99,8 +99,34 @@ class SceneDescriber(
         }.getOrDefault(false)
     }
 
-    private fun weightsFile(): File? =
-        manifest.fileFor("android")?.let { File(File(context.filesDir, "models"), it) }
+    /**
+     * Where the weights are, checking every place a user can actually put them.
+     *
+     * The private `filesDir` is unreachable on a release build: `run-as` only
+     * works on debuggable packages, so the documented `adb push` + `run-as cp`
+     * recipe silently does nothing and the app reports the model as not
+     * installed while the file sits in `/data/local/tmp`. That is how this was
+     * discovered.
+     *
+     * App-specific external storage needs no permission on any supported
+     * Android version, is writable by plain `adb push`, and shows up over USB
+     * as `Android/data/in.sarathi.app/files/models/` - so a person can drag the
+     * file onto their phone without a computer that has adb on it.
+     *
+     * Read in place rather than copied. The file is 2.4 GB and duplicating it
+     * would ask for 5 GB free on a phone that may not have it.
+     */
+    private fun weightsFile(): File? {
+        val name = manifest.fileFor("android") ?: return null
+        return searchPaths(name).firstOrNull { it.exists() }
+    }
+
+    /** Every location checked, in order. Public so the UI can explain itself. */
+    fun searchPaths(name: String): List<File> = listOfNotNull(
+        File(File(context.filesDir, "models"), name),
+        context.getExternalFilesDir("models")?.let { File(it, name) },
+        context.getExternalFilesDir(null)?.let { File(it, name) },
+    )
 
     /**
      * Describe [bitmap] in one sentence, or return null.

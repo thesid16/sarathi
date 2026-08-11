@@ -16,6 +16,7 @@
     <string name="read_label">Read text</string>
     <string name="describe_missing">Describe scene — model not installed</string>
     <string name="model_label">Model</string>
+    <string name="vlm_missing_detail">Scene description needs the Gemma model (2.4 GB), which is not bundled — it would make the app larger than many phones can install.\n\nCopy gemma-4-E2B-it.litertlm into this folder, then reopen Sarathi. The folder is visible over USB.</string>
     <string name="lang_short">हिन्दी</string>
     <string name="model_none">No detector manifests found in this build.</string>
     <string name="spoken_placeholder">Start guidance, then point the camera ahead.</string>

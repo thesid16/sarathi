@@ -9,6 +9,20 @@ installed at all.
 
 **Requires** Android 8.0 or newer. Tested on a Pixel 8a.
 
+### The one-command way
+
+With the phone connected by USB and USB debugging on:
+
+```bash
+./install-on-phone.sh
+```
+
+That installs the app and copies the scene-description model. Everything works
+afterwards with nothing else to set up. If you do not have `adb`, use the
+by-hand steps below — they need no special software.
+
+### By hand
+
 1. Copy `sarathi.apk` to the phone — cable, email, or any file-sharing app.
 2. Open it. Android will say *"For your security, your phone is not allowed to
    install unknown apps from this source"* — tap **Settings**, turn on the
@@ -50,15 +64,33 @@ They stay out of the APK deliberately. Bundling them would make the install
 completely usable without them: the button reports the model as not installed
 and nothing else changes.
 
-To add it to a phone (needs 8 GB RAM and ~3 GB free):
+`./install-on-phone.sh` does this for you. To do it by hand (needs 8 GB RAM and
+~3 GB free), open the phone once so the folder exists, then either:
 
-```bash
-adb push models/weights/gemma-4-E2B-it.litertlm /data/local/tmp/
-adb shell "run-as in.sarathi.app mkdir -p files/models"
-adb shell "run-as in.sarathi.app cp /data/local/tmp/gemma-4-E2B-it.litertlm files/models/"
+**With a cable, no adb.** The phone appears as a drive. Copy
+`models/weights/gemma-4-E2B-it.litertlm` into:
+
+```
+Android/data/in.sarathi.app/files/models/
 ```
 
-That copy takes about three minutes over USB.
+**Or with adb:**
+
+```bash
+adb shell mkdir -p /sdcard/Android/data/in.sarathi.app/files/models
+adb push models/weights/gemma-4-E2B-it.litertlm \
+         /sdcard/Android/data/in.sarathi.app/files/models/
+```
+
+About a minute over USB. Reopen Sarathi afterwards.
+
+The app reads it in place rather than copying it, so this costs 2.4 GB once,
+not twice.
+
+> An earlier version of this file told you to use `adb shell run-as`. That only
+> works on debuggable builds, so on the release APK it fails with "package not
+> debuggable" and the app then reports the model as missing while the file sits
+> in `/data/local/tmp`. If you followed those instructions, that is why.
 
 The **desktop and browser** builds need no copying — the desktop app finds it in
 `models/weights/` automatically.
@@ -165,7 +197,8 @@ docs/09-edit-guide.md  how to change any of it
 | Black screen where the camera should be | Camera permission was denied. Settings → Apps → Sarathi → Permissions. |
 | Detects nothing at all | Check `adb logcat -s SarathiService \| grep self-test`. A healthy line reads `maxScore=0.754 detections=2 [clock 0.75, car 0.68]`. |
 | Says nothing while clearly detecting | Usually correct. Read the `quiet — …` line; it says which rule kept it silent. |
-| Describe scene does nothing | The Gemma weights are not installed. See above. |
+| Describe scene says "not installed" | The weights are not in `Android/data/in.sarathi.app/files/models/`. Press the button — it names the exact folder. |
+| It reads text on screen but says nothing | Fixed in this build. The answer used to arrive while the phone was still saying "Reading" and was dropped as stale; answers are now queued behind the acknowledgement. |
 
 Licensed **AGPL-3.0**. Model weights and datasets carry their own terms, listed
 in the repository with generated attribution.

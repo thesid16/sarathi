@@ -8,7 +8,7 @@ device.
 
 | I want to… | Do this |
 |---|---|
-| **Try it on a phone** | Copy `sarathi.apk` to an Android phone and open it. Allow the camera. It starts by itself. |
+| **Try it on a phone** | `./install-on-phone.sh` with the phone plugged in — app *and* the 2.4 GB scene model, one command. Or copy `sarathi.apk` across and open it. |
 | **See it without installing** | `cd web && python3 -m http.server 8000`, then open <http://localhost:8000> |
 | **See it on this computer** | Double-click `run-desktop.command` |
 | **Change something** | [`docs/09-edit-guide.md`](docs/09-edit-guide.md) |
