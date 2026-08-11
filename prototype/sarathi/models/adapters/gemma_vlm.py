@@ -159,7 +159,12 @@ class GemmaSceneDescriber(SceneDescriber):
 
     # -- inference ----------------------------------------------------------
 
-    def describe(self, image: np.ndarray, prompt: str | None = None) -> str:
+    def describe(
+        self,
+        image: np.ndarray,
+        prompt: str | None = None,
+        system_message: str | None = None,
+    ) -> str:
         import cv2
         import litert_lm
 
@@ -170,7 +175,13 @@ class GemmaSceneDescriber(SceneDescriber):
 
         started = time.perf_counter()
         conversation = engine.create_conversation(
-            system_message=self.system_message,
+            # From the caller's phrase book when supplied. This is what decides
+            # which language the answer comes back in - translating the
+            # question is not enough, because an English instruction pulls the
+            # model back to English however the question is phrased. Android
+            # was fixed first and this was left behind, so the desktop app
+            # still answered in English with the language set to Hindi.
+            system_message=system_message or self.system_message,
             max_output_tokens=self.max_output_tokens,
         )
         try:

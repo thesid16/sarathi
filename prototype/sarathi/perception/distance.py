@@ -67,8 +67,23 @@ class CameraModel:
 
     @property
     def fx(self) -> float:
-        """Focal length in pixels, from the horizontal field of view."""
-        return (self.width / 2.0) / math.tan(math.radians(self.hfov_deg) / 2.0)
+        """Focal length in pixels, from the field of view across the long axis.
+
+        The quoted horizontal FOV describes the sensor's wide axis, and a phone
+        sensor is mounted landscape. On Android the analysis bitmap is rotated
+        upright before it reaches the detector, so in portrait `width` is the
+        *short* axis - dividing by it understates the focal length by 25% on a
+        4:3 frame and makes every distance about 27% short.
+
+        Focal length is a property of the optics and the pixel pitch. Rotating
+        an image swaps which axis is which and changes neither, so taking the
+        longer dimension is correct in both orientations.
+
+        Must stay identical to `CameraModel.fx` in Geometry.kt.
+        """
+        return (max(self.width, self.height) / 2.0) / math.tan(
+            math.radians(self.hfov_deg) / 2.0
+        )
 
     @property
     def fy(self) -> float:

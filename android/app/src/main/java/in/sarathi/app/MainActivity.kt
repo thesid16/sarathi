@@ -313,6 +313,13 @@ class MainActivity : AppCompatActivity() {
                 append("   ").append(snap.activity.lowercase())
                 if (!snap.thermalHeadroom.isNaN()) {
                     append("   thermal %.2f".format(snap.thermalHeadroom))
+                    // Named, not just numbered. A viewer seeing 1.0 Hz where
+                    // the app claims 8 concludes it is broken; the honest
+                    // explanation is that the platform is close to throttling
+                    // and the governor got there first. Charging is the usual
+                    // cause on a desk - a Pixel 8a on AC sits at 0.97 with the
+                    // skin at only 34 C, because the CPU cluster is at 71.
+                    if (snap.thermalHeadroom >= 0.60f) append(" (heat-limited)")
                 }
                 // Measured, not configured. Every ground-plane distance is
                 // computed from this angle, so it belongs on screen next to

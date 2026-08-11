@@ -101,6 +101,7 @@ class DesktopApp:
         self.reader: Any = None
         self.on_demand_busy = False
         self.answers = queue.Queue()
+        self._phrase_book = None
 
         self.root = tk.Tk()
         self.root.title("Sarathi — assistive vision")
@@ -412,12 +413,25 @@ class DesktopApp:
         check it. Hazards come from the detector, which is bounded and
         measured. This answers a question, when asked.
         """
+        phrases = self._phrases()
         self._on_demand(
             "Describing…",
-            lambda image: self._vlm().describe(image),
+            lambda image: self._vlm().describe(
+                image,
+                phrases.system_phrase("describe_prompt"),
+                phrases.system_phrase("describe_system"),
+            ),
             loading="Loading Gemma (first time is slower)…",
             needs_load=self.describer is None,
         )
+
+    def _phrases(self):
+        """The phrase book for the selected language, loaded once."""
+        if self._phrase_book is None:
+            from .guidance.phrasing import PhraseBook
+
+            self._phrase_book = PhraseBook.load(self.args.lang)
+        return self._phrase_book
 
     def _read_text(self) -> None:
         """Read any text in view - a sign, a door number, a label."""

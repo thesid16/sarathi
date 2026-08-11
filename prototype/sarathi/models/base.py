@@ -104,8 +104,19 @@ class SceneDescriber(Model):
     """Vision-language scene description. The slot a future Gemma drops into."""
 
     @abc.abstractmethod
-    def describe(self, image: np.ndarray, prompt: str | None = None) -> str:
-        """One sentence describing what is in front of the user."""
+    def describe(
+        self,
+        image: np.ndarray,
+        prompt: str | None = None,
+        system_message: str | None = None,
+    ) -> str:
+        """One sentence describing what is in front of the user.
+
+        `system_message` decides the language the answer comes back in, so it
+        belongs in the interface rather than baked into one adapter: asking the
+        question in Hindi is not enough, because an English instruction pulls a
+        multilingual model back to English.
+        """
 
 
 # -- adapter registry --------------------------------------------------------

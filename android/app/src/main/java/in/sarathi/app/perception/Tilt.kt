@@ -74,7 +74,7 @@ class Tilt(context: Context) : SensorEventListener {
         val magnitude = sqrt((x * x + y * y + z * z).toDouble())
         if (magnitude < 1e-3) return
 
-        val raw = Math.toDegrees(asin((-z / magnitude).coerceIn(-1.0, 1.0)))
+        val raw = Math.toDegrees(asin((z / magnitude).coerceIn(-1.0, 1.0)))
 
         // Low-pass, because a walking gait swings the phone several degrees per
         // step. Un-smoothed, announced distances would breathe in and out at

@@ -18,7 +18,18 @@ class CameraModel(
     val mountHeightM: Double = 1.20,
     val pitchDeg: Double = 0.0,
 ) {
-    val fx: Double get() = (width / 2.0) / tan(Math.toRadians(hfovDeg) / 2.0)
+    /**
+     * Focal length in pixels.
+     *
+     * Derived from the **longer** image axis, because that is the one the
+     * quoted field of view describes. The sensor is mounted landscape and the
+     * analysis bitmap is rotated upright, so on a phone in portrait `width` is
+     * the short axis - dividing it by tan(hfov/2) understated the focal length
+     * by 25% and made every distance about 27% short. Focal length is a
+     * property of the optics and the pixel pitch; rotating the image swaps
+     * which axis is which, and changes neither.
+     */
+    val fx: Double get() = (maxOf(width, height) / 2.0) / tan(Math.toRadians(hfovDeg) / 2.0)
     // Square pixels: deriving fy from a vertical FOV would double-count the
     // aspect ratio and skew every distance.
     val fy: Double get() = fx

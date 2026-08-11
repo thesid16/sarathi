@@ -117,8 +117,10 @@ class SaliencyEngine(private val config: Config = Config()) {
             best.track.hazard == Hazard.LOW && !config.announceLowHazard ->
                 "${best.track.label}: low hazard, context only"
             best.track.distanceM != null && best.track.distanceM!! > config.maxDistanceM ->
-                "${best.track.label}: %.1f m, beyond %.0f m".format(
-                    best.track.distanceM, config.maxDistanceM
+                // Feet, like every other distance on the screen. Two units for
+                // one quantity is a way to be wrong twice.
+                "${best.track.label}: %.0f ft, beyond %.0f ft".format(
+                    best.track.distanceM!! * 3.28084, config.maxDistanceM * 3.28084
                 )
             best.score < config.scoreFloor ->
                 "${best.track.label}: %.2f below %.2f".format(best.score, config.scoreFloor)
@@ -134,6 +136,11 @@ class SaliencyEngine(private val config: Config = Config()) {
                 lastReason = "${candidate.track.label}: too soon after the last"
                 continue
             }
+            // Chosen, so there is nothing to explain. Left set, the screen
+            // reads "quiet - chair: 0.84" while the app is saying "chair
+            // ahead" - a diagnostic added to disambiguate silence, reporting
+            // silence that did not happen.
+            lastReason = ""
             markSpoken(candidate, nowMs)
             return candidate
         }
