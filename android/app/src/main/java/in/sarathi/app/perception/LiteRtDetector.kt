@@ -346,8 +346,18 @@ class LiteRtDetector private constructor(
          */
         fun runSurvey(context: Context, manifest: ModelManifest) {
             val models = ArrayList<Pair<String, java.nio.MappedByteBuffer>>()
-            manifest.fileFor("android")?.let { name ->
-                mapFromAssets(context, "models/$name")?.let { models += "$name (bundled)" to it }
+            // Every detector this build ships, not just the selected one. The
+            // point of the survey is to compare them, and enumerating the
+            // manifests means a model added later is benchmarked without
+            // touching this code.
+            runCatching {
+                `in`.sarathi.app.models.SharedData.listManifests(context)
+                    .filter { it.task == "detection" && it.loadable }
+                    .sortedBy { it.id }
+                    .forEach { m ->
+                        val file = m.fileFor("android") ?: return@forEach
+                        mapFromAssets(context, "models/$file")?.let { models += m.id to it }
+                    }
             }
             java.io.File(context.filesDir, "models")
                 .listFiles { f -> f.name.endsWith(".tflite") }

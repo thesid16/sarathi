@@ -1,0 +1,102 @@
+# The detector this project actually trained: 26 classes chosen for walking,
+# not the 80 COCO happens to contain.
+#
+# This is the one that knows what a staircase, an open manhole and tactile
+# paving are. COCO has none of them, so the bundled COCO model - useful for
+# people, cars and doorways - is blind to the hazards this product exists to
+# warn about. It is offered alongside rather than instead, because COCO covers
+# indoor clutter this set deliberately does not.
+#
+# Held-out accuracy, from docs/07-results.md:
+#   mAP50 0.597 across all 26        stairs_up    P 0.930  R 0.983
+#   IDD domain hold-out 0.219        stairs_down  P 0.932  R 0.950
+#   (Indian road footage, never      open_manhole P 0.838  R 0.930
+#    trained on - the honest
+#    transfer number)
+#
+# Weak classes, stated rather than hidden: barrier 0.000 recall (a labelling
+# problem, not a capacity one), tactile_paving 0.087, bin 0.244.
+
+id: sarathi26-320
+task: detection
+family: yolo11
+version: 1.0.0
+
+license: AGPL-3.0
+distribution: bundled
+source_url: https://github.com/ultralytics/ultralytics
+attribution: "YOLO11 by Ultralytics, AGPL-3.0"
+
+runtime:
+  # tflite only - no ONNX export of this build, so it is Android-only for now.
+  android: litert
+
+files:
+  tflite:
+    path: sarathi26-320.tflite
+    sha256: dde43e4c1deef8acb76b3b506b50c7a9924535fe25ddb777bb8740b70ec63f31
+    size_bytes: 2832000
+    url: https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt
+
+# onnx2tf rewrites NCHW to NHWC, because that is the layout TFLite kernels
+# want. Everything else about the input is identical, so only the layout is
+# overridden rather than duplicating the whole block and letting the two drift.
+input_overrides:
+  tflite:
+    layout: NHWC
+    # Dynamic-range quantized: int8 weights, float32 activations computed at
+    # runtime. Float I/O, so this is a drop-in for the fp32 build.
+    #
+    # It won a measured comparison of every variant onnx2tf can produce, and
+    # the winner was not the obvious one:
+    #
+    #   fp32 baseline          10.60 MB   7.0 ms   class score 0.876
+    #   dynamic-range           2.87 MB   5.7 ms   class score 0.878  <- shipped
+    #   float16                 5.36 MB   6.3 ms   class score 0.876
+    #   full INT8               2.95 MB   3.7 ms   class score 0.000  <- broken
+    #   INT8 + int16 acts       3.07 MB   307 ms   class score 0.879  <- unusable
+    #
+    # Full INT8 is the fastest and detects nothing: box regression survives
+    # while the classification head collapses, because post-sigmoid class
+    # scores occupy a tiny range that per-tensor int8 scales round to zero.
+    # The textbook fix - int16 activations - restores accuracy and is 46x
+    # slower, because there is no optimised int16 kernel and it falls back to
+    # reference implementations.
+    #
+    # fp16 is also unusable on the CPU path: onnx2tf's fp16 export makes the
+    # whole graph fp16 including the input tensor, and TFLite's CPU CONV_2D
+    # prepares only for float32/uint8/int8/int16. Verified on a Pixel 8a -
+    # "Node number 1 (CONV_2D) failed to prepare". fp16 needs the GPU delegate.
+    dtype: float32
+
+input:
+  width: 320
+  height: 320
+  layout: NCHW
+  color: RGB
+  dtype: float32
+  resize: letterbox      # aspect-preserving; stretching moves every box
+  pad_value: 114
+  scale: 0.00392156862745098   # 1/255
+  mean: [0.0, 0.0, 0.0]
+  std: [1.0, 1.0, 1.0]
+
+output:
+  decoder: yolo11        # anchor-free, [1, 4+nc, anchors], xywh centre form
+  labels: sarathi26
+  conf_threshold: 0.35
+  nms_iou: 0.5
+  max_detections: 50
+
+# Preference order only - the app benchmarks these on first run and verifies
+# each against a CPU reference before using it. On a Pixel 8a the GPU delegate
+# is roughly twice as fast as XNNPACK and returns numerically wrong output for
+# this graph, so it is listed last and gets rejected at runtime rather than
+# trusted here. See docs/03-optimization.md, "The GPU delegate: measured, and
+# rejected".
+delegates: [xnnpack, gpu]
+
+notes: >
+  Fine-tuned from yolo11n on WOTR, Mendeley stairs, Open-Manholes and two
+  Roboflow stair sets. IDD is held out entirely and never trains released
+  weights - it is licensed for student use only. See docs/04-datasets.md.

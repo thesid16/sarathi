@@ -298,6 +298,37 @@ inference rate that quietly halves.
   used detector, and it is the kind of thing that gets fixed upstream.
 - The survey is committed, so re-checking either of those is one command.
 
+### The export command, recorded because not having it cost a day
+
+The exact flags were never written down, and re-deriving them from memory
+produced three broken models that loaded fine and returned `maxScore=1.000`
+with fifty boxes of one class - saturated garbage, caught only by the on-device
+self-test. The culprit was adding `-qt per-tensor`, which is the same
+per-tensor scaling documented below as collapsing the classification head; it
+damages the dynamic-range output too, not just full INT8.
+
+```bash
+# ONNX from the training venv (ultralytics + torch)
+.venv/bin/python -c "
+from ultralytics import YOLO
+YOLO('best.pt').export(format='onnx', imgsz=320, opset=13, dynamic=False)"
+
+# TFLite from the export venv (onnx2tf + tensorflow). NO -qt flag.
+.venv-export/bin/python -m onnx2tf -i best.onnx -o out \
+    -osd -coion -b 1 -tb tf_converter -oiqt
+
+# take *_dynamic_range_quant.tflite
+```
+
+Verify before it reaches a phone - a broken export is not visibly broken:
+
+```python
+y = interpreter.get_tensor(out["index"])[0]
+print("box rows max", y[:4].max(), "class max", y[4:].max())
+# healthy: box rows ~ the input size (320), class max 0.6-0.9
+# broken:  class max 1.0000, or 0.0000
+```
+
 ### Three dead ends, recorded so nobody repeats them
 
 - `tensorflow-cpu` publishes no Apple Silicon wheels. The x86 wheel installs

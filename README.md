@@ -338,6 +338,7 @@ a detection's measured distance rather than by tuning a threshold.
 | [Scene description](docs/05-vlm.md) | Gemma 4 E2B on device: latency, memory, and the build that cannot see |
 | [Text reading](docs/06-ocr.md) | OCR, the recogniser comparison, and the licence trade made knowingly |
 | [Results](docs/07-results.md) | Held-out detector accuracy, per class |
+| [Baseline](docs/08-baseline.md) | Where the time goes, per stage and per model |
 | [Engineering report](docs/assets/report.html) | The whole project on one page, with every measured number |
 | [Datasets](docs/04-datasets.md) | Every source with its licence, and how the domain gap gets closed without collecting data |
 | [ADRs](docs/adr/) | Decision records, including the options rejected and why |

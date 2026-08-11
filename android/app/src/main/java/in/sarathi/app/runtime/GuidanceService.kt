@@ -74,6 +74,28 @@ class GuidanceService : LifecycleService() {
     private var inferenceMsTotal = 0L
     private var lastMaxScore = 0f
 
+    /**
+     * Cumulative microseconds per stage, and how many frames each ran on.
+     *
+     * Averaged over many frames rather than timed once: a single frame's
+     * numbers are dominated by whatever the scheduler happened to be doing,
+     * and the first few include lazy allocation. Microseconds because the
+     * cheap stages - the motion gate, saliency, phrasing - are well under a
+     * millisecond and would otherwise all read as zero, which looks like
+     * they are not running.
+     */
+    private val stageUs = linkedMapOf<String, Long>()
+    private val stageCount = mutableMapOf<String, Long>()
+
+    private inline fun <T> stage(name: String, block: () -> T): T {
+        val started = System.nanoTime()
+        val result = block()
+        val elapsed = (System.nanoTime() - started) / 1_000
+        stageUs[name] = (stageUs[name] ?: 0L) + elapsed
+        stageCount[name] = (stageCount[name] ?: 0L) + 1
+        return result
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -241,11 +263,13 @@ class GuidanceService : LifecycleService() {
         }
         describer?.trimIfIdle(now)
         val age = now - frame.timestampMs
-        val decision = scheduler.decide(frame.luma, frame.width, frame.height, age, now)
+        val decision = stage("gate") {
+            scheduler.decide(frame.luma, frame.width, frame.height, age, now)
+        }
         if (!decision.run) { report(now); return }
 
         val model = detector ?: return
-        val bitmap = frame.toBitmap() ?: return
+        val bitmap = stage("yuv→bitmap") { frame.toBitmap() } ?: return
         // Rebuilt whenever the frame dimensions change, not cached once.
         //
         // The bitmap is rotated upright, so on a phone turned from portrait to
@@ -268,17 +292,20 @@ class GuidanceService : LifecycleService() {
                 cameraModel = it
             }
 
-        val detections = model.detect(bitmap)
+        val detections = stage("detect") { model.detect(bitmap) }
         val frameW = bitmap.width
         val frameH = bitmap.height
         detectionCount += detections.size
         inferenceMsTotal += model.lastInferenceMs
         lastMaxScore = model.lastMaxScore
-        for (det in detections) {
-            val estimate = Geometry.estimate(det.label, det.box, camModel, priors, bitmap.height)
-            det.distanceM = estimate.metres
-            det.distanceSource = estimate.source
-            det.bearingDeg = camModel.bearingDeg(((det.box[0] + det.box[2]) / 2.0))
+        stage("geometry") {
+            for (det in detections) {
+                val estimate =
+                    Geometry.estimate(det.label, det.box, camModel, priors, bitmap.height)
+                det.distanceM = estimate.metres
+                det.distanceSource = estimate.source
+                det.bearingDeg = camModel.bearingDeg(((det.box[0] + det.box[2]) / 2.0))
+            }
         }
         bitmap.recycle()
 
@@ -292,17 +319,21 @@ class GuidanceService : LifecycleService() {
             )
         }
 
-        val tracks = tracker.update(detections, now)
-        val chosen = saliency.select(tracks, now)
+        val tracks = stage("track") { tracker.update(detections, now) }
+        val chosen = stage("saliency") { saliency.select(tracks, now) }
         GuidanceBus.publish { it.copy(quietReason = saliency.lastReason) }
         if (chosen == null) return
-        val text = phrases.utterance(
-            label = chosen.track.label,
-            bearingDeg = chosen.track.bearingDeg,
-            metres = chosen.track.distanceM,
-            urgent = chosen.urgent,
-        )
-        val spoken = voice.say(text, urgent = chosen.urgent, earcon = chosen.urgent)
+        val text = stage("phrase") {
+            phrases.utterance(
+                label = chosen.track.label,
+                bearingDeg = chosen.track.bearingDeg,
+                metres = chosen.track.distanceM,
+                urgent = chosen.urgent,
+            )
+        }
+        val spoken = stage("speak") {
+            voice.say(text, urgent = chosen.urgent, earcon = chosen.urgent)
+        }
         utteranceCount++
         if (spoken) {
             GuidanceBus.publish { it.copy(lastSpoken = text, lastSpokenAtMs = now) }
@@ -365,6 +396,10 @@ class GuidanceService : LifecycleService() {
             "inference=${inferenceMsTotal / ran}ms " +
             "said=$utteranceCount dropped=${voice.droppedCount} " +
             "skips=${scheduler.skips}")
+        Log.i(TAG, "stages " + stageUs.entries.joinToString("  ") { (name, total) ->
+            val runs = (stageCount[name] ?: 1L).coerceAtLeast(1L)
+            "$name=${"%.2f".format(total / runs / 1000.0)}ms×$runs"
+        })
     }
 
     override fun onDestroy() {
