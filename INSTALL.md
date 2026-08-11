@@ -39,30 +39,34 @@ should box them and say something. If it says nothing, that is often correct —
 it deliberately stays quiet about things that are not in your way, and the line
 under the camera tells you which: `quiet — laptop: low hazard, context only`.
 
-### Scene description needs a separate download
+### Scene description: the model is included, but not inside the APK
 
-The **Describe scene** button uses Gemma 4, a 2.5 GB model that is not in the
-APK. Bundling it would make the app a 2.6 GB install on phones that often have
-4 GB of storage in total, so it is optional.
+The **Describe scene** button uses Gemma 4. Its weights are in this package at
+`models/weights/gemma-4-E2B-it.litertlm` — 2.4 GB, which is why the package is
+large and the APK is not.
 
-Without it the button says the model is not installed and everything else works
-normally.
+They stay out of the APK deliberately. Bundling them would make the install
+2.5 GB on phones that often have 4 GB of storage in total, and the app is
+completely usable without them: the button reports the model as not installed
+and nothing else changes.
 
-To add it (needs 8 GB RAM and about 3.5 GB free):
+To add it to a phone (needs 8 GB RAM and ~3 GB free):
 
 ```bash
-# download once, ~2.5 GB
-curl -L -o gemma-4-E2B-it.litertlm \
-  https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm
-
-adb push gemma-4-E2B-it.litertlm /data/local/tmp/
+adb push models/weights/gemma-4-E2B-it.litertlm /data/local/tmp/
 adb shell "run-as in.sarathi.app mkdir -p files/models"
 adb shell "run-as in.sarathi.app cp /data/local/tmp/gemma-4-E2B-it.litertlm files/models/"
 ```
 
-Make sure it is the file named exactly `gemma-4-E2B-it.litertlm`. The build
-called `-gpu` is smaller and *cannot see* — it contains no vision encoder and
-fails the moment an image is attached.
+That copy takes about three minutes over USB.
+
+The **desktop and browser** builds need no copying — the desktop app finds it in
+`models/weights/` automatically.
+
+If you ever re-download it, take the file named exactly
+`gemma-4-E2B-it.litertlm`. The build called `-gpu` is smaller, looks like the
+obvious choice, and *cannot see*: it has no vision encoder and fails the moment
+an image is attached.
 
 ### Choosing a detector
 

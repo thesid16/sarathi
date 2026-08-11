@@ -30,9 +30,17 @@ training/              taxonomy, size priors, dataset definitions
 docs/                  design, measurements, results, edit guide
 ```
 
-Not included: the 2.5 GB Gemma scene-description weights (download separately —
-see `INSTALL.md`), the datasets, and the depth model. Everything needed to run,
-read, build and modify the app is here.
+Everything needed to run, read, build and modify the app is here, including all
+model weights — the 2.4 GB Gemma scene-description model is the reason this
+package is 2.7 GB.
+
+Two things are deliberately absent. The **training datasets** are public
+downloads, listed with their licences in `docs/04-datasets.md`, and come to
+roughly 60 GB. The **compiled GPU kernel caches** are machine-specific and are
+regenerated automatically on first use; shipping them would add ~900 MB that
+helps nobody.
+
+If you only need the app, `sarathi.apk` on its own is 92 MB.
 
 ## In one paragraph
 
