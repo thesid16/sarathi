@@ -64,6 +64,17 @@ HAZARD_COLOURS = {
 }
 
 
+def _weights_present(registry: Any, manifest: Any) -> bool:
+    """Whether this model's weights are on disk for the prototype runtime."""
+    if getattr(manifest, "vendored_weights", False):
+        return True
+    try:
+        spec = manifest.file_for(registry.runtime)
+        return spec.resolve(registry.weights_dir).exists()
+    except Exception:  # noqa: BLE001 - any failure means "not usable"
+        return False
+
+
 class DesktopApp:
     """A window over the live pipeline."""
 
@@ -73,6 +84,11 @@ class DesktopApp:
         self.frames = queue.Queue(maxsize=1)
         self.worker: threading.Thread | None = None
         self.stop_flag = threading.Event()
+        self.orphans: list[threading.Thread] = []
+        self._orphans = self.orphans
+        #: Incremented per run. A payload from an earlier run is discarded
+        #: rather than drawn, so a dying worker cannot report into a live one.
+        self.generation = 0
         self.latest: dict[str, Any] = {}
         self.spoken_history: list[str] = []
         self.started_at = 0.0
@@ -173,9 +189,17 @@ class DesktopApp:
 
         try:
             registry = ModelRegistry()
+            # Weights must exist, not merely be declared. `yolox-nano` has a
+            # manifest and no exported .onnx, and offering it means the picker
+            # can start a run that dies immediately - while the window keeps
+            # the previous model's numbers under the new model's name, which is
+            # the exact "plausible but wrong" failure this project keeps
+            # finding. A control that cannot work does not belong on screen.
             ids = sorted(
                 m.id for m in registry.manifests.values()
-                if getattr(m.task, "value", m.task) == "detection" and m.loadable
+                if getattr(m.task, "value", m.task) == "detection"
+                and m.loadable
+                and _weights_present(registry, m)
             )
         except Exception as exc:  # noqa: BLE001 - a demo must still open
             log.warning("could not list models: %s", exc)
@@ -205,8 +229,20 @@ class DesktopApp:
         self._stop() if self.running else self._start()
 
     def _start(self) -> None:
-        self.stop_flag.clear()
-        self.worker = threading.Thread(target=self._run, name="sarathi-pipeline", daemon=True)
+        # A fresh flag per run, so a previous worker that has not finished
+        # cannot be resurrected by this one clearing the flag it is watching.
+        self.stop_flag = threading.Event()
+        self.generation += 1
+        # Flag and source are passed in, not read off self inside the thread.
+        # Reading them dynamically is what let a replaced flag un-stop an
+        # orphan: `_run` checked `self.stop_flag`, `_start` rebound it, and the
+        # abandoned worker saw a fresh un-set Event and carried on.
+        self.worker = threading.Thread(
+            target=self._run,
+            args=(self.stop_flag, self.generation, self.args.source),
+            name="sarathi-pipeline",
+            daemon=True,
+        )
         self.worker.start()
         self.running = True
         self.started_at = time.monotonic()
@@ -215,9 +251,30 @@ class DesktopApp:
         self.model_choice.configure(state="disabled")
 
     def _stop(self) -> None:
+        """Stop, without blocking the window and without abandoning a thread.
+
+        The obvious version - `join(timeout=3)` then drop the reference - has
+        two faults that only appear together. The join runs on the Tk main
+        thread, so a camera blocked in `open()` freezes the window for three
+        seconds and reads as a hang. And when the join times out the worker is
+        still alive, still owns the stop flag, and the next Start clears that
+        flag and revives it: measured, an abandoned RTSP attempt failed thirty
+        seconds into a *later, healthy* session and stopped it, reporting an
+        error about a URL the user had already given up on.
+
+        So each run gets its own flag, and a worker that outlives its stop is
+        remembered rather than forgotten - it can no longer be un-stopped, and
+        it cannot push into a session it does not belong to.
+        """
         self.stop_flag.set()
-        if self.worker is not None:
-            self.worker.join(timeout=3.0)
+        worker = self.worker
+        if worker is not None:
+            worker.join(timeout=0.25)
+            if worker.is_alive():
+                # Blocked in a camera open. It will exit on its own; until
+                # then it holds a flag that is already set, so it is inert.
+                log.info("camera thread still finishing; it will exit on its own")
+                self._orphans.append(worker)
         self.worker = None
         self.running = False
         self.start_button.configure(text="Start", bg=AMBER, fg=INK)
@@ -231,7 +288,7 @@ class DesktopApp:
 
     # -- the pipeline thread ----------------------------------------------
 
-    def _run(self) -> None:
+    def _run(self, stop: threading.Event, generation: int, source: str) -> None:
         """Own thread: a stalled camera must not freeze the window."""
         from .guidance.speech import EarconPlayer, MacSpeaker, NullSpeaker, VoiceOutput
         from .runtime import Pipeline, PipelineConfig, SchedulerConfig
@@ -257,14 +314,14 @@ class DesktopApp:
         )
 
         try:
-            cam = LatestFrame(create_source(self.args.source), reconnect=True).start()
+            cam = LatestFrame(create_source(source), reconnect=True).start()
         except SourceError as exc:
-            self._push({"error": str(exc)})
+            self._push({"error": str(exc), "generation": generation})
             return
 
         last_detections: list[Any] = []
         try:
-            while not self.stop_flag.is_set():
+            while not stop.is_set():
                 frame = cam.get(timeout=2.0)
                 if frame is None:
                     if cam.ended:
@@ -283,10 +340,16 @@ class DesktopApp:
                     "image": frame.image,
                     "detections": last_detections,
                     "result": result,
-                    "detector": pipeline.detector,
+                    "generation": generation,
                 })
         finally:
             cam.stop()
+            # The clip ran out, or the camera went away. Say so, rather than
+            # leaving the window on a frozen last frame with a RUNNING badge
+            # and a disabled model picker - which is how every `--source clip`
+            # demo used to end.
+            if not stop.is_set():
+                self._push({"ended": True, "generation": generation})
 
     def _push(self, payload: dict[str, Any]) -> None:
         """Hand the newest frame to the UI, dropping any it has not drawn.
@@ -312,8 +375,13 @@ class DesktopApp:
             payload = None
 
         if payload is not None:
-            if "error" in payload:
+            if payload.get("generation") != self.generation:
+                pass          # from a run that has already been stopped
+            elif "error" in payload:
                 self.spoken.configure(text=f"Camera error: {payload['error']}")
+                self._stop()
+            elif payload.get("ended"):
+                self.spoken.configure(text="Source ended.")
                 self._stop()
             else:
                 self._draw(payload)
@@ -371,6 +439,9 @@ class DesktopApp:
         self.canvas.create_image(width // 2, height // 2, image=photo, anchor="center")
         self.canvas._photo = photo  # keep a reference or Tk garbage-collects it
 
+        # Shown whether or not audio is on. `spoke` now means "passed the
+        # speech policy" rather than "a speaker was attached", so muting the
+        # demo no longer empties the one panel the demo is about.
         if result.utterance is not None and result.spoke:
             text = result.utterance.text
             if not self.spoken_history or self.spoken_history[-1] != text:
@@ -415,8 +486,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lang", default="en", choices=("en", "hi"))
     parser.add_argument("--speak", action="store_true", help="speak out loud as well as show")
     parser.add_argument("--max-hz", type=float, default=8.0)
-    parser.add_argument("--camera-height", type=float, default=1.4)
-    parser.add_argument("--camera-pitch", type=float, default=20.0)
+    # Matched to PipelineConfig and Android's CameraModel, not chosen
+    # separately. Different defaults here would mean the window on stage shows
+    # different distances from the phone in your hand for the same scene, and
+    # the whole point of this app is that what it shows is what the product
+    # does. The ground-plane tier wants ~20 degrees of downward pitch to have
+    # near-field floor to fit against - pass --camera-pitch 20 for that, on
+    # both sides.
+    parser.add_argument("--camera-height", type=float, default=1.20)
+    parser.add_argument("--camera-pitch", type=float, default=0.0)
     parser.add_argument("--config", default=None)
     parser.add_argument("--set", action="append", default=[])
     args = parser.parse_args(argv)

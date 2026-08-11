@@ -15,7 +15,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -66,6 +65,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var describeButton: TextView
     private lateinit var readButton: TextView
     private lateinit var modelButton: TextView
+    private lateinit var languageButton: TextView
     private lateinit var stats: TextView
 
     private val running: Boolean get() = GuidanceService.isRunning
@@ -198,8 +198,11 @@ class MainActivity : AppCompatActivity() {
         }
         startButton = actionButton(getString(R.string.start_desc), AMBER, dark = true) { toggle() }
         modelButton = actionButton(getString(R.string.model_label), SLATE) { chooseModel() }
+        languageButton = actionButton(languageLabel(), SLATE) { switchLanguage() }
+        languageButton.contentDescription = getString(R.string.lang_desc)
         row2.addView(startButton)
         row2.addView(modelButton)
+        row2.addView(languageButton)
         root.addView(row2)
 
         return root
@@ -239,6 +242,10 @@ class MainActivity : AppCompatActivity() {
     // -- state ---------------------------------------------------------------
 
     private fun render(snap: GuidanceBus.Snapshot) {
+        // The bus posts to the main thread, so a snapshot published a moment
+        // before onDestroy can be delivered a moment after it - and the
+        // 700 ms re-attach below outlives a fast rotate-and-back.
+        if (isFinishing || isDestroyed) return
         val live = running
         statusPill.text = if (live) getString(R.string.status_running) else getString(R.string.status_idle)
         statusPill.background = pill(if (live) AMBER else MUTED)
@@ -306,6 +313,7 @@ class MainActivity : AppCompatActivity() {
         // The service takes a moment to settle either way; re-read rather than
         // assume, and re-attach the preview once it exists.
         preview.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
             GuidanceService.attachPreview(preview.surfaceProvider)
             render(GuidanceBus.snapshot)
         }, 700)
@@ -322,8 +330,16 @@ class MainActivity : AppCompatActivity() {
      */
     private fun chooseModel() {
         if (running) return
+        // Only models whose weights are actually present.
+        //
+        // Listing every detection manifest would offer yolox-nano, which has
+        // no .tflite in this build - selecting it starts guidance with no
+        // detector at all, and the app then runs silently while appearing
+        // completely healthy. A control that can be pressed must do what it
+        // says; one that cannot should not be on the screen.
         val manifests = runCatching {
-            SharedData.listManifests(this).filter { it.task == "detection" && it.loadable }
+            SharedData.listManifests(this)
+                .filter { it.task == "detection" && it.loadable && weightsPresent(it) }
         }.getOrDefault(emptyList())
         if (manifests.isEmpty()) {
             AlertDialog.Builder(this)
@@ -334,10 +350,19 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val prefs = getSharedPreferences(GuidanceService.PREFS, Context.MODE_PRIVATE)
-        val current = prefs.getString("detector", "yolo11n-coco-320.yaml")
+        val current = prefs.getString("detector", DEFAULT_DETECTOR)
         val files = manifests.map { "${it.id}.yaml" }
         val labels = manifests.map { "${it.id}\n${it.license} · ${it.distribution}" }.toTypedArray()
-        val checked = files.indexOf(current).coerceAtLeast(0)
+        // A stored value no longer in the list - a stale preference, or
+        // sideloaded weights since deleted - would otherwise be coerced to
+        // index 0, showing the first model as chosen while the service
+        // faithfully loads the missing one and detects nothing. Repair the
+        // preference instead of misreporting it.
+        var checked = files.indexOf(current)
+        if (checked < 0) {
+            checked = 0
+            prefs.edit().putString("detector", files[0]).apply()
+        }
 
         AlertDialog.Builder(this)
             .setTitle(R.string.model_label)
@@ -350,11 +375,56 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /** Whether this manifest's Android weights exist, bundled or sideloaded. */
+    private fun weightsPresent(manifest: `in`.sarathi.app.models.ModelManifest): Boolean {
+        val file = manifest.fileFor("android") ?: return false
+        val inAssets = runCatching {
+            assets.list("models")?.contains(file) == true
+        }.getOrDefault(false)
+        return inAssets || java.io.File(java.io.File(filesDir, "models"), file).exists()
+    }
+
+    /**
+     * Switch between English and Hindi.
+     *
+     * Restarts the service when running, because the phrase book, the TTS
+     * voice and the OCR script are all chosen at startup - Devanagari is a
+     * separate recogniser, not a flag on the Latin one, so a live swap would
+     * leave the app reading Hindi signs with an English model and finding
+     * nothing.
+     */
+    /**
+     * What the language button offers, derived from what is stored.
+     *
+     * Built from the preference rather than hardcoded, because a label that
+     * only updates on click is wrong on every launch after the first: prefs
+     * say Hindi, the button still reads "हिन्दी" - offering to switch to the
+     * language already in use - and pressing it switches back to English.
+     */
+    private fun languageLabel(): String {
+        val current = getSharedPreferences(GuidanceService.PREFS, Context.MODE_PRIVATE)
+            .getString("lang", "en")
+        return if (current == "hi") "English" else getString(R.string.lang_short)
+    }
+
     private fun switchLanguage() {
         val prefs = getSharedPreferences(GuidanceService.PREFS, Context.MODE_PRIVATE)
         val next = if (prefs.getString("lang", "en") == "en") "hi" else "en"
         prefs.edit().putString("lang", next).apply()
-        if (running) { toggle(); toggle() }   // restart so the new voice loads
+        languageButton.text = languageLabel()
+        if (running) {
+            stopService(Intent(this, GuidanceService::class.java))
+            preview.postDelayed({
+                if (isFinishing || isDestroyed) return@postDelayed
+                ContextCompat.startForegroundService(
+                    this, Intent(this, GuidanceService::class.java)
+                )
+                preview.postDelayed({
+                    if (isFinishing || isDestroyed) return@postDelayed
+                    GuidanceService.attachPreview(preview.surfaceProvider)
+                }, 700)
+            }, 400)
+        }
     }
 
     private fun send(action: String) {
@@ -422,5 +492,7 @@ class MainActivity : AppCompatActivity() {
         val AMBER = Color.rgb(229, 168, 60)
         val SLATE = Color.rgb(38, 44, 48)
         val CYAN = Color.rgb(120, 214, 200)
+
+        const val DEFAULT_DETECTOR = "yolo11n-coco-320.yaml"
     }
 }

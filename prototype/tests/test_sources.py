@@ -190,3 +190,43 @@ def test_threads_are_cleaned_up(sample_video):
         cam.get(timeout=2.0)
     time.sleep(0.1)
     assert threading.active_count() <= before
+
+
+def test_rtsp_capture_options_do_not_leak_into_later_sources(monkeypatch):
+    """FFmpeg options are per-source, not per-process.
+
+    OpenCV's Python bindings expose no per-capture option API, so RTSP tuning
+    goes through an environment variable. It used to be set and left set, so
+    every capture opened afterwards in the same process inherited
+    `rtsp_transport`, `nobuffer` and an RTSP socket timeout - including plain
+    video files, which then silently produced no frames.
+
+    Nothing raised. The window just stayed empty, which is the failure shape
+    this project keeps having to hunt.
+    """
+    import os
+
+    from sarathi.sources.cv import RtspSource
+
+    key = "OPENCV_FFMPEG_CAPTURE_OPTIONS"
+    monkeypatch.delenv(key, raising=False)
+
+    source = RtspSource("cam", "rtsp://198.51.100.1:554/stream")
+    # Constructing the source must not touch the environment at all - only the
+    # open() call may, and only for its own duration.
+    assert key not in os.environ
+
+    captured = {}
+
+    def fake_capture(target, api):
+        captured["options"] = os.environ.get(key)
+        raise RuntimeError("stop here; we only care about the environment")
+
+    monkeypatch.setattr("cv2.VideoCapture", fake_capture)
+    with pytest.raises(RuntimeError):
+        source._open_capture()
+
+    assert captured["options"] is not None
+    assert "rtsp_transport" in captured["options"]
+    # ...and it is gone again afterwards.
+    assert key not in os.environ

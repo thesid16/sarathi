@@ -94,8 +94,17 @@ class GuidanceService : LifecycleService() {
             }
         }
 
-        val detectorManifest = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString("detector", DETECTOR_MANIFEST) ?: DETECTOR_MANIFEST
+        // Falls back when the stored choice cannot be honoured. The picker
+        // only offers models whose weights exist, but a preference outlives
+        // the build that wrote it: an app updated with a model removed would
+        // otherwise start, report itself healthy, and detect nothing.
+        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val stored = prefs.getString("detector", DETECTOR_MANIFEST) ?: DETECTOR_MANIFEST
+        val detectorManifest = if (manifestUsable(stored)) stored else {
+            Log.w(TAG, "stored detector $stored is unusable; falling back to $DETECTOR_MANIFEST")
+            prefs.edit().putString("detector", DETECTOR_MANIFEST).apply()
+            DETECTOR_MANIFEST
+        }
         detector = runCatching {
             val manifest = SharedData.manifest(this, detectorManifest)
             val labels = manifest.output?.labels?.let { SharedData.labels(this, "$it.txt") }
@@ -163,6 +172,15 @@ class GuidanceService : LifecycleService() {
         }
         return START_STICKY
     }
+
+    /** Whether a manifest exists, is loadable, and has weights on this device. */
+    private fun manifestUsable(fileName: String): Boolean = runCatching {
+        val manifest = SharedData.manifest(this, fileName)
+        if (!manifest.loadable) return false
+        val weights = manifest.fileFor("android") ?: return false
+        val inAssets = assets.list("models")?.contains(weights) == true
+        inAssets || java.io.File(java.io.File(filesDir, "models"), weights).exists()
+    }.getOrDefault(false)
 
     private fun requestReading() {
         if (reader == null) {

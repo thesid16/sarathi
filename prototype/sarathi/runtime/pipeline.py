@@ -235,8 +235,23 @@ class Pipeline:
         spoke = False
         if chosen is not None:
             utterance = self.phraser.utterance(chosen)
-            if self.config.speak:
-                spoke = self.voice.say(utterance, now=now)
+            # Always run the speech gate, even when muted.
+            #
+            # `speak=False` used to skip `voice.say` entirely, which made
+            # silence a *different code path* rather than the same one with
+            # the volume down: the per-object and per-class cooldowns, the
+            # urgency interrupt and the drop-don't-queue rule were all
+            # bypassed, so `spoke` was permanently False and `utterance`
+            # reported every candidate the saliency engine picked rather than
+            # the ones that would actually have been said.
+            #
+            # Anything reading these fields to show what the product does -
+            # the desktop window, the benchmark harness - was therefore
+            # reading a fiction whenever audio was off, which is the default
+            # for a demo. With a NullSpeaker the gate costs nothing and
+            # `spoke` now means "passed the speech policy", which is the
+            # question everything downstream is actually asking.
+            spoke = self.voice.say(utterance, now=now)
 
         return PipelineResult(
             frame_seq=frame.seq,

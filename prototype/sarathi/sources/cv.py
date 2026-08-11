@@ -33,8 +33,11 @@ class CvSource(FrameSource):
     def _configure(self, cap: cv2.VideoCapture) -> None:
         """Hook for subclasses to set properties after opening."""
 
+    #: FFmpeg options for this source, applied only while it is opening.
+    _capture_options: str | None = None
+
     def open(self) -> SourceInfo:
-        cap = cv2.VideoCapture(self._target, self._api)
+        cap = self._open_capture()
         if not cap.isOpened():
             cap.release()
             raise SourceError(f"cannot open {self.kind} source {self._target!r}")
@@ -74,6 +77,34 @@ class CvSource(FrameSource):
             ts_received=received,
             source_id=self.source_id,
         )
+
+    def _open_capture(self) -> cv2.VideoCapture:
+        """Construct the capture with this source's FFmpeg options, and only its own.
+
+        OpenCV's Python bindings expose no per-capture option API, so these
+        have to go through the environment - which is process-global, and used
+        to be *set and left set*. Every later capture in the same process then
+        inherited them: open an RTSP camera once and every subsequent video
+        file was opened with `rtsp_transport`, `nobuffer` and an RTSP socket
+        timeout attached.
+
+        The visible symptom was a desktop session that silently produced no
+        frames after an earlier attempt at an unreachable camera - not an
+        error, just an empty window, which is the failure shape this project
+        keeps having to hunt. Scoped to the call, restored after.
+        """
+        key = "OPENCV_FFMPEG_CAPTURE_OPTIONS"
+        if self._capture_options is None:
+            return cv2.VideoCapture(self._target, self._api)
+        previous = os.environ.get(key)
+        os.environ[key] = self._capture_options
+        try:
+            return cv2.VideoCapture(self._target, self._api)
+        finally:
+            if previous is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = previous
 
     def _on_read_failure(self) -> Frame | None:
         raise SourceError(f"{self.kind} read failed")
@@ -144,15 +175,25 @@ class RtspSource(CvSource):
                 f"rtsp_transport;{transport}",
                 "fflags;nobuffer",
                 "flags;low_delay",
+                # `stimeout` is the pre-5.0 name and `timeout` the current
+                # one; unknown options are ignored, so supplying both covers
+                # whichever FFmpeg this OpenCV was built against.
                 f"stimeout;{timeout_us}",
+                f"timeout;{timeout_us}",
                 "reorder_queue_size;0",
             ]
         )
-        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = opts
+        self._capture_options = opts
         super().__init__(source_id, url, api=cv2.CAP_FFMPEG)
 
     def _configure(self, cap: cv2.VideoCapture) -> None:
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        # Bounds the connect, which the FFmpeg options above do not: they
+        # govern socket reads once a connection exists. A blackholed address
+        # otherwise hangs for the OS TCP timeout.
+        for prop in ("CAP_PROP_OPEN_TIMEOUT_MSEC", "CAP_PROP_READ_TIMEOUT_MSEC"):
+            if hasattr(cv2, prop):
+                cap.set(getattr(cv2, prop), 5000)
 
 
 class FileSource(CvSource):
