@@ -47,6 +47,33 @@ are never installed the app is exactly as safe as it is with them.
 | Model file | 2.59 GB |
 | Compiled-kernel cache | 915 MB |
 
+### And on a laptop
+
+The same weights, the same manifest and the same adapter interface, through
+`litert-lm`'s WebGPU backend on an M3 MacBook:
+
+| | Pixel 8a (GPU) | M3 MacBook (WebGPU) |
+|---|---:|---:|
+| Engine load, cache warm | 4.4 s | **4.8 s** |
+| Description | 3.6 s | **2.7 s** |
+
+Close enough that the desktop app is a fair rehearsal for the phone — which is
+the reason it drives the real pipeline rather than a mock. Press **Describe
+scene**:
+
+```bash
+.venv/bin/python -m sarathi.desktop
+```
+
+Live from the laptop camera, first attempt:
+
+```
+"Ahead of you is a man with dark, curly hair wearing a light pink shirt."
+```
+
+One sentence, position first, plain nouns, no preamble about images — the
+system instruction doing its job.
+
 Read the logs yourself:
 
 ```bash
@@ -200,9 +227,6 @@ better place to be.
   rate, and no measurement of how it degrades in the dark or in motion. Until
   there is, this stays off the safety path — which is where it was always
   going to stay anyway.
-- **The prototype adapter is untested against real weights on macOS.** The code
-  path is the same and the pure functions are covered, but no description has
-  been generated on a laptop; `litert-lm`'s macOS backend support is unverified.
 - **Hindi output is unverified.** The prompt is translated and the model is
   multilingual, so it should answer in Hindi. Nobody has confirmed it does, or
   that what it says is idiomatic.

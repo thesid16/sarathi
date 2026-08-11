@@ -50,6 +50,7 @@ RULE = "#262C30"
 PAPER = "#E7EAE6"
 MUTED = "#7F8A8E"
 AMBER = "#E5A83C"
+SLATE = "#262C30"
 CYAN = "#78D6C8"
 
 #: Hazard level -> outline colour. Four colours that mean urgency, rather than
@@ -92,6 +93,14 @@ class DesktopApp:
         self.latest: dict[str, Any] = {}
         self.spoken_history: list[str] = []
         self.started_at = 0.0
+        #: Most recent frame, kept so an on-demand request has something to
+        #: work on the instant it is pressed rather than waiting for the next.
+        self.last_image: Any = None
+        #: Loaded on first use and kept, because loading is the expensive half.
+        self.describer: Any = None
+        self.reader: Any = None
+        self.on_demand_busy = False
+        self.answers = queue.Queue()
 
         self.root = tk.Tk()
         self.root.title("Sarathi — assistive vision")
@@ -142,8 +151,24 @@ class DesktopApp:
             font=("TkDefaultFont", 13, "bold"), padx=26, pady=9, cursor="hand2",
         )
         self.start_button.pack(side="left")
-        tk.Label(controls, text="  model  ", bg=INK, fg=MUTED).pack(side="left")
-        self.model_choice = ttk.Combobox(controls, state="readonly", width=26, values=[])
+        # On-demand tiers, the same two the phone puts on volume-up. They are
+        # buttons here rather than gestures because a laptop has no volume
+        # rocker to hold, and because a demo needs them to be visible.
+        self.describe_button = tk.Button(
+            controls, text="Describe scene", command=self._describe,
+            bg=SLATE, fg=PAPER, activebackground=SLATE, relief="flat",
+            font=("TkDefaultFont", 12), padx=16, pady=9, cursor="hand2",
+        )
+        self.describe_button.pack(side="left", padx=(10, 0))
+        self.read_button = tk.Button(
+            controls, text="Read text", command=self._read_text,
+            bg=SLATE, fg=PAPER, activebackground=SLATE, relief="flat",
+            font=("TkDefaultFont", 12), padx=16, pady=9, cursor="hand2",
+        )
+        self.read_button.pack(side="left", padx=(8, 0))
+
+        tk.Label(controls, text="  detector  ", bg=INK, fg=MUTED).pack(side="left")
+        self.model_choice = ttk.Combobox(controls, state="readonly", width=22, values=[])
         self.model_choice.pack(side="left")
         self.model_choice.bind("<<ComboboxSelected>>", lambda _e: self._model_changed())
 
@@ -249,6 +274,7 @@ class DesktopApp:
         self.start_button.configure(text="Stop", bg=RULE, fg=PAPER)
         self.status.configure(text="RUNNING", bg=AMBER, fg=INK)
         self.model_choice.configure(state="disabled")
+        self._set_on_demand_enabled(True)
 
     def _stop(self) -> None:
         """Stop, without blocking the window and without abandoning a thread.
@@ -280,10 +306,19 @@ class DesktopApp:
         self.start_button.configure(text="Start", bg=AMBER, fg=INK)
         self.status.configure(text="STOPPED", bg=MUTED, fg=INK)
         self.model_choice.configure(state="readonly")
+        self.last_image = None
+        if not self.on_demand_busy:
+            self._set_on_demand_enabled(False)
 
     def _on_close(self) -> None:
         if self.running:
             self._stop()
+        for model in (self.describer, self.reader):
+            if model is not None:
+                try:
+                    model.close()
+                except Exception:  # noqa: BLE001 - closing must not raise
+                    pass
         self.root.destroy()
 
     # -- the pipeline thread ----------------------------------------------
@@ -366,9 +401,127 @@ class DesktopApp:
         except queue.Full:
             pass
 
+    # -- on-demand tiers ---------------------------------------------------
+
+    def _describe(self) -> None:
+        """Ask the VLM what is in front of the camera.
+
+        Deliberately not part of the per-frame pipeline. Gemma takes seconds
+        and holds gigabytes; more importantly it is wrong in fluent, confident
+        prose, which is the worst possible failure mode for someone who cannot
+        check it. Hazards come from the detector, which is bounded and
+        measured. This answers a question, when asked.
+        """
+        self._on_demand(
+            "Describing…",
+            lambda image: self._vlm().describe(image),
+            loading="Loading Gemma (first time is slower)…",
+            needs_load=self.describer is None,
+        )
+
+    def _read_text(self) -> None:
+        """Read any text in view - a sign, a door number, a label."""
+        def read(image):
+            lines = self._ocr().read(image)
+            if not lines:
+                return "(no text found)"
+            return ". ".join(text for text, _ in lines)
+
+        self._on_demand("Reading text…", read, needs_load=self.reader is None)
+
+    def _vlm(self):
+        """The scene-description model, loaded on first use and kept.
+
+        Resolved from the manifests rather than named here, so dropping a new
+        VLM manifest into `models/manifests/` makes it usable without touching
+        this file - which is the point of the manifest system, and was
+        previously true of the detector only.
+        """
+        if self.describer is None:
+            # getattr, not attribute access: DesktopApp is constructed with a
+            # plain Namespace in tests and by anything embedding it, and a
+            # missing optional flag should not take out the feature.
+            self.describer = self._load_first("vlm", getattr(self.args, "vlm", None))
+        return self.describer
+
+    def _ocr(self):
+        if self.reader is None:
+            self.reader = self._load_first("ocr", None)
+        return self.reader
+
+    def _load_first(self, task: str, preferred: str | None):
+        from .models import ModelRegistry
+
+        registry = ModelRegistry()
+        candidates = [
+            m for m in registry.manifests.values()
+            if getattr(m.task, "value", m.task) == task
+            and m.loadable
+            and _weights_present(registry, m)
+        ]
+        if preferred:
+            candidates = [m for m in candidates if m.id == preferred] or candidates
+        if not candidates:
+            raise RuntimeError(
+                f"no usable {task} model. Weights go in models/weights/; "
+                f"see `sarathi models` for what each manifest expects."
+            )
+        return registry.load(sorted(candidates, key=lambda m: m.id)[0].id)
+
+    def _on_demand(self, busy_text, work, *, loading=None, needs_load=False) -> None:
+        """Run `work` on the latest frame, off the UI thread.
+
+        Dropped rather than queued while one is already running, which is the
+        same rule the speech layer follows: an answer about a scene the user
+        has walked out of is worse than no answer.
+        """
+        if self.on_demand_busy:
+            log.info("on-demand request dropped; one already running")
+            return
+        image = self.last_image
+        if image is None:
+            self.spoken.configure(text="Start the camera first.")
+            return
+
+        self.on_demand_busy = True
+        self._set_on_demand_enabled(False)
+        # Said before the work starts. Loading the model alone takes seconds,
+        # and a window that goes still is indistinguishable from one that has
+        # hung.
+        self.spoken.configure(text=(loading if needs_load else busy_text))
+        self.root.update_idletasks()
+
+        frame = image.copy()
+
+        def run():
+            try:
+                answer = work(frame)
+            except Exception as exc:  # noqa: BLE001 - report, never crash the demo
+                log.warning("on-demand failed: %s", exc)
+                answer = f"({type(exc).__name__}: {str(exc)[:120]})"
+            self.answers.put(answer)
+
+        threading.Thread(target=run, name="sarathi-on-demand", daemon=True).start()
+
+    def _set_on_demand_enabled(self, enabled: bool) -> None:
+        state = "normal" if enabled else "disabled"
+        for button in (self.describe_button, self.read_button):
+            button.configure(state=state)
+
     # -- drawing ----------------------------------------------------------
 
     def _tick(self) -> None:
+        try:
+            answer = self.answers.get_nowait()
+        except queue.Empty:
+            answer = None
+        if answer is not None:
+            self.on_demand_busy = False
+            self._set_on_demand_enabled(self.running)
+            self.spoken.configure(text=f"“{answer}”")
+            self.said.insert(tk.END, f"{time.strftime('%H:%M:%S')}  {answer}")
+            self.said.see(tk.END)
+
         try:
             payload = self.frames.get_nowait()
         except queue.Empty:
@@ -393,6 +546,7 @@ class DesktopApp:
         from PIL import Image, ImageDraw, ImageFont, ImageTk
 
         image = payload["image"]
+        self.last_image = image
         detections = payload["detections"]
         result = payload["result"]
 
@@ -490,6 +644,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source", default="0", help="camera index, video path, or URL")
     parser.add_argument("--detector", default="yolo11n-coco-320")
     parser.add_argument("--depth", default=None, help="depth manifest id, or omit for none")
+    parser.add_argument(
+        "--vlm", default=None,
+        help="scene-description manifest id (default: the first usable one)",
+    )
     parser.add_argument("--lang", default="en", choices=("en", "hi"))
     parser.add_argument("--speak", action="store_true", help="speak out loud as well as show")
     parser.add_argument(

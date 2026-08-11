@@ -182,6 +182,15 @@ cd "path/to/STM Vission App/prototype"
 Boxes coloured by hazard, the distance it computed, what it chose to say and
 what it stayed quiet about, and the numbers behind the decision.
 
+Two buttons run the on-demand tiers, the same ones the phone puts on volume-up:
+
+- **Describe scene** — Gemma 4 E2B locally. 4.8 s to load, then 2.7 s an answer.
+- **Read text** — OCR on a sign, a door number, a label.
+
+Neither is on the safety path. Hazards come from the detector, which is bounded
+and measured; a language model is wrong in fluent, confident prose, which is the
+worst failure mode available to someone who cannot check it.
+
 This is not a toy viewer. It earns its place by catching things logs cannot:
 a detector fed sideways frames reports "0 detections", which is also what an
 empty room reports — but a picture with no boxes on an obvious doorway is
