@@ -42,6 +42,10 @@ object GuidanceBus {
         val lastSpokenAtMs: Long = 0,
         /** Human-readable note about the on-demand tiers: loading, reading, idle. */
         val busy: String = "",
+        /** Why nothing was announced on the last pass. Silence, explained. */
+        val quietReason: String = "",
+        /** Measured camera pitch below horizontal. NaN when no sensor reading. */
+        val pitchDeg: Double = Double.NaN,
         val vlmInstalled: Boolean = false,
     )
 

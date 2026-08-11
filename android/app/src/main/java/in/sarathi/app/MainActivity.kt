@@ -158,6 +158,23 @@ class MainActivity : AppCompatActivity() {
         viewport.addView(busyLine)
         root.addView(viewport)
 
+        // Push the overlaid pills below the clock and the notification icons.
+        // Without this they are drawn underneath the system status bar - the
+        // amber "Guiding" badge landed directly on top of the time, which
+        // looks like a broken app before anyone has pressed anything.
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(viewport) { _, insets ->
+            val top = insets.getInsets(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars()
+            ).top
+            (statusPill.layoutParams as FrameLayout.LayoutParams)
+                .setMargins(dp(14), top + dp(10), 0, 0)
+            (busyLine.layoutParams as FrameLayout.LayoutParams)
+                .setMargins(0, top + dp(10), dp(14), 0)
+            statusPill.requestLayout()
+            busyLine.requestLayout()
+            insets
+        }
+
         // -- what it said: the actual product output, given the most room --
         spoken = TextView(this).apply {
             layoutParams = LinearLayout.LayoutParams(MATCH, WRAP)
@@ -255,14 +272,18 @@ class MainActivity : AppCompatActivity() {
         // Controls that cannot work say so by being disabled, rather than
         // accepting a press and doing nothing - which is exactly how the old
         // screen behaved and exactly why it seemed broken.
-        setEnabled(describeButton, live && snap.vlmInstalled)
-        setEnabled(readButton, live)
+        // Enabled whenever they can do something. A disabled control is
+        // indistinguishable from a broken one to someone who just pressed it,
+        // and both on-demand tiers can start guidance themselves - so the only
+        // genuine blocker is weights that are not installed.
+        setEnabled(describeButton, vlmAvailable())
+        setEnabled(readButton, true)
         setEnabled(modelButton, !live)
-        modelButton.text = if (live) getString(R.string.model_locked) else getString(R.string.model_label)
+        modelButton.text = getString(R.string.model_label)
 
-        if (!snap.vlmInstalled) {
-            describeButton.contentDescription = getString(R.string.describe_missing)
-        }
+        describeButton.contentDescription =
+            if (vlmAvailable()) getString(R.string.describe_label)
+            else getString(R.string.describe_missing)
 
         if (snap.busy.isNotEmpty()) {
             busyLine.text = snap.busy
@@ -271,7 +292,15 @@ class MainActivity : AppCompatActivity() {
             busyLine.visibility = View.GONE
         }
 
-        if (snap.lastSpoken.isNotEmpty()) spoken.text = "“${snap.lastSpoken}”"
+        if (snap.lastSpoken.isNotEmpty()) {
+            spoken.text = "“${snap.lastSpoken}”"
+        } else {
+            // Running with nothing said yet is the normal state on a scene with
+            // no hazard in it, and the line below says why. Stopped is stopped.
+            spoken.text = getString(
+                if (live) R.string.listening else R.string.spoken_placeholder
+            )
+        }
 
         if (live) {
             overlay.update(snap.detections, snap.frameWidth, snap.frameHeight)
@@ -285,10 +314,21 @@ class MainActivity : AppCompatActivity() {
                 if (!snap.thermalHeadroom.isNaN()) {
                     append("   thermal %.2f".format(snap.thermalHeadroom))
                 }
+                // Measured, not configured. Every ground-plane distance is
+                // computed from this angle, so it belongs on screen next to
+                // the distances it produces.
+                append(
+                    if (snap.pitchDeg.isNaN()) "   tilt —"
+                    else "   tilt %.0f°".format(snap.pitchDeg)
+                )
                 append("\n")
                 append(snap.detections.size).append(" detected")
                 // The number that separates an empty scene from a broken one.
                 append("   peak score %.2f".format(snap.maxScore))
+                // And why it is not talking, which is otherwise unknowable.
+                if (snap.quietReason.isNotEmpty()) {
+                    append("\nquiet — ").append(snap.quietReason)
+                }
             }
         } else {
             overlay.clear()
@@ -310,13 +350,19 @@ class MainActivity : AppCompatActivity() {
         } else {
             ContextCompat.startForegroundService(this, intent)
         }
-        // The service takes a moment to settle either way; re-read rather than
-        // assume, and re-attach the preview once it exists.
+        // The service takes a moment to settle either way, so re-read rather
+        // than assume. The preview surface is handed over as soon as the
+        // service object exists; CameraSource holds it until its own use case
+        // is built, so there is no window to miss.
         preview.postDelayed({
             if (isFinishing || isDestroyed) return@postDelayed
             GuidanceService.attachPreview(preview.surfaceProvider)
             render(GuidanceBus.snapshot)
-        }, 700)
+        }, 400)
+        preview.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            GuidanceService.attachPreview(preview.surfaceProvider)
+        }, 1_500)
         render(GuidanceBus.snapshot)
     }
 
@@ -427,10 +473,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Ask the service to do something, starting it first if it is not running.
+     *
+     * Refusing to act while stopped was technically defensible and practically
+     * indistinguishable from a broken button: the user presses "Describe
+     * scene", nothing happens, and there is no way to learn why. Pressing it
+     * plainly means "describe the scene", and turning the camera on is part of
+     * doing that.
+     */
     private fun send(action: String) {
-        if (!running) return
-        startService(Intent(this, GuidanceService::class.java).setAction(action))
+        val intent = Intent(this, GuidanceService::class.java).setAction(action)
+        if (running) {
+            startService(intent)
+            return
+        }
+        toggle()
+        // The camera and the model need a moment; the request is forwarded once
+        // the service exists rather than dropped.
+        preview.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            startService(intent)
+        }, 1_200)
     }
+
+    /** Whether the scene-description weights are on this device. */
+    private fun vlmAvailable(): Boolean = runCatching {
+        val manifest = SharedData.manifest(this, "gemma-4-e2b-vlm.yaml")
+        val file = manifest.fileFor("android") ?: return false
+        java.io.File(java.io.File(filesDir, "models"), file).exists()
+    }.getOrDefault(false)
 
     private fun requestPermissions() {
         val needed = buildList {

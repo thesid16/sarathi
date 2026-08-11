@@ -52,15 +52,26 @@ bearing:
 
 distance:
   hedge: "about"
+  # `max` stays in metres - that is what the geometry computes, and converting
+  # the threshold rather than the maths keeps one source of truth. The spoken
+  # text is feet, which is what this audience measures short distances in.
+  #
+  # The ladder is coarse on purpose. The estimate carries tens of percent of
+  # error, so "eleven point four feet" would be false precision dressed as
+  # confidence; rounding to familiar numbers is honest about what is known.
+  # Rungs get wider with distance because the error does too, and because a
+  # near obstacle needs resolution while a far one needs a heading.
+  unit: feet
   steps:
-    - {max: 0.75, text: "half a metre"}
-    - {max: 1.25, text: "one metre"}
-    - {max: 1.75, text: "one and a half metres"}
-    - {max: 2.5, text: "two metres"}
-    - {max: 3.5, text: "three metres"}
-    - {max: 4.5, text: "four metres"}
-    - {max: 5.5, text: "five metres"}
-    - {max: 99.0, text: "six metres"}
+    - {max: 0.6, text: "one and a half feet"}
+    - {max: 0.9, text: "two and a half feet"}
+    - {max: 1.2, text: "three and a half feet"}
+    - {max: 1.7, text: "five feet"}
+    - {max: 2.3, text: "seven feet"}
+    - {max: 3.2, text: "ten feet"}
+    - {max: 4.2, text: "thirteen feet"}
+    - {max: 5.5, text: "sixteen feet"}
+    - {max: 99.0, text: "twenty feet"}
 
 # Spoken names. Only overrides - anything absent falls back to the taxonomy
 # label with underscores replaced by spaces.
@@ -117,3 +128,15 @@ system:
   # the same translation job: the answer comes back in the language it is asked
   # in, so this is what makes a Hindi user get a Hindi description.
   describe_prompt: "What is in front of me right now?"
+  # The model's system instruction, kept beside the spoken strings because it
+  # is the same translation job: this is what decides which language the answer
+  # comes back in. Asking the question in Hindi is not enough - an English
+  # instruction pulls the model back to English, which is exactly what a Hindi
+  # user saw.
+  describe_system: >
+    You describe scenes for a blind person who is standing where the camera is
+    pointing. Answer in English only. One short sentence, under 30 words. Lead
+    with what is directly ahead and closest. Name things plainly. Give
+    positions as left, ahead or right. Do not mention the image, the photo, or
+    the camera. Do not guess at anything you cannot see. If the view is too
+    dark or blurred to read, say exactly that.

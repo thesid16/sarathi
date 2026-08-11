@@ -21,6 +21,7 @@ import `in`.sarathi.app.models.PhraseBook
 import `in`.sarathi.app.models.SharedData
 import `in`.sarathi.app.perception.CameraModel
 import `in`.sarathi.app.perception.Geometry
+import `in`.sarathi.app.perception.Tilt
 import `in`.sarathi.app.perception.LiteRtDetector
 import `in`.sarathi.app.ocr.TextReader
 import `in`.sarathi.app.vlm.SceneDescriber
@@ -61,6 +62,7 @@ class GuidanceService : LifecycleService() {
     private val describeRequested = AtomicBoolean(false)
     private val readRequested = AtomicBoolean(false)
     private var cameraModel: CameraModel? = null
+    private lateinit var tilt: Tilt
     private var priors = emptyMap<String, `in`.sarathi.app.models.SizePrior>()
 
     // Field diagnostics. This runs on a phone in a pocket with the screen off,
@@ -84,6 +86,7 @@ class GuidanceService : LifecycleService() {
         val hazards = SharedData.taxonomy(this)
         val bridge = SharedData.labelBridge(this)
 
+        tilt = Tilt(this).also { it.start() }
         scheduler = Scheduler(power = getSystemService(POWER_SERVICE) as? PowerManager)
         tracker = Tracker()
         saliency = SaliencyEngine()
@@ -251,11 +254,17 @@ class GuidanceService : LifecycleService() {
         // and the wrong horizon row for every frame after the turn - and the
         // ground-plane distances derived from that horizon would be quietly
         // wrong rather than absent.
+        // Rebuilt when the frame size changes OR the phone is tilted, because
+        // pitch is not a correction to the distance - it is most of it. Two
+        // degrees is about the smallest change worth recomputing for; a walking
+        // gait swings several, and the sensor is already smoothed.
+        val pitch = if (tilt.live) tilt.pitchDeg else 0.0
         val camModel = cameraModel
-            ?.takeIf { it.width == bitmap.width && it.height == bitmap.height }
-            ?: CameraModel(bitmap.width, bitmap.height).also {
-                Log.i(TAG, "camera model ${bitmap.width}x${bitmap.height} " +
-                    "horizon_y=${"%.0f".format(it.horizonY)}")
+            ?.takeIf {
+                it.width == bitmap.width && it.height == bitmap.height &&
+                    kotlin.math.abs(it.pitchDeg - pitch) < 2.0
+            }
+            ?: CameraModel(bitmap.width, bitmap.height, pitchDeg = pitch).also {
                 cameraModel = it
             }
 
@@ -284,7 +293,9 @@ class GuidanceService : LifecycleService() {
         }
 
         val tracks = tracker.update(detections, now)
-        val chosen = saliency.select(tracks, now) ?: return
+        val chosen = saliency.select(tracks, now)
+        GuidanceBus.publish { it.copy(quietReason = saliency.lastReason) }
+        if (chosen == null) return
         val text = phrases.utterance(
             label = chosen.track.label,
             bearingDeg = chosen.track.bearingDeg,
@@ -313,7 +324,11 @@ class GuidanceService : LifecycleService() {
     private fun serveDescription(bitmap: android.graphics.Bitmap) {
         val vlm = describer ?: return
         thread(name = "sarathi-vlm", isDaemon = true) {
-            val answer = vlm.describe(bitmap, phrases.systemPhrase("describe_prompt"))
+            val answer = vlm.describe(
+                bitmap,
+                phrases.systemPhrase("describe_prompt"),
+                phrases.systemPhrase("describe_system"),
+            )
             bitmap.recycle()
             GuidanceBus.publish {
                 it.copy(busy = "", lastSpoken = answer ?: "(no description)",
@@ -337,6 +352,7 @@ class GuidanceService : LifecycleService() {
                 skipPercent = (scheduler.skipRate * 100).toInt(),
                 activity = scheduler.activity.name,
                 thermalHeadroom = scheduler.lastPressure.toFloat(),
+                pitchDeg = if (tilt.live) tilt.pitchDeg else Double.NaN,
             )
         }
         val ran = scheduler.framesRan.coerceAtLeast(1)
@@ -353,6 +369,7 @@ class GuidanceService : LifecycleService() {
 
     override fun onDestroy() {
         instance = null
+        if (::tilt.isInitialized) tilt.stop()
         GuidanceBus.reset()
         describer?.close()
         reader?.close()

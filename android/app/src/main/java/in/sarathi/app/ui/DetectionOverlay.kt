@@ -83,7 +83,9 @@ class DetectionOverlay(context: Context) : View(context) {
             )
             canvas.drawRoundRect(rect, 8f, 8f, box)
 
-            val distance = detection.distanceM?.let { " · %.1f m".format(it) } ?: ""
+            // Feet, matching what the app says out loud. Two readouts of the
+            // same quantity in different units is a way to be wrong twice.
+            val distance = detection.distanceM?.let { " · %.0f ft".format(it * 3.28084) } ?: ""
             val caption = "${detection.label}$distance"
             val textWidth = labelText.measureText(caption)
             // Labels flip below the box near the top edge rather than being
@@ -91,11 +93,17 @@ class DetectionOverlay(context: Context) : View(context) {
             // urgent objects tend to sit.
             val above = rect.top > 52f
             val top = if (above) rect.top - 46f else rect.bottom + 4f
+            // Kept inside the view. A box near the right edge - which is where
+            // the nearest object often is as someone turns - otherwise has its
+            // label run off the screen, so the reader sees "person · 4.1" with
+            // the units and half the number missing. Seen on a Pixel 8a.
+            val boxWidth = textWidth + 22f
+            val left = rect.left.coerceIn(0f, (width - boxWidth).coerceAtLeast(0f))
             labelBg.color = colour
             canvas.drawRoundRect(
-                RectF(rect.left, top, rect.left + textWidth + 22f, top + 44f), 6f, 6f, labelBg
+                RectF(left, top, left + boxWidth, top + 44f), 6f, 6f, labelBg
             )
-            canvas.drawText(caption, rect.left + 11f, top + 32f, labelText)
+            canvas.drawText(caption, left + 11f, top + 32f, labelText)
         }
     }
 

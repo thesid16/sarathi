@@ -576,7 +576,8 @@ class DesktopApp:
             colour = HAZARD_COLOURS.get(hazard, "#78D6A8")
             x1, y1, x2, y2 = (v * scale for v in det.box)
             canvas_draw.rectangle([x1, y1, x2, y2], outline=colour, width=3)
-            distance = f"  {det.distance_m:.1f} m" if det.distance_m else ""
+            # Feet, matching the phrase books and the phone overlay.
+            distance = f"  {det.distance_m * 3.28084:.0f} ft" if det.distance_m else ""
             caption = f"{det.label}{distance}"
             text_w = canvas_draw.textlength(caption, font=font)
             label_top = y1 - 21 if y1 > 24 else y2 + 2

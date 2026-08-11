@@ -17,8 +17,8 @@
     <string name="describe_missing">Describe scene — model not installed</string>
     <string name="model_label">Model</string>
     <string name="lang_short">हिन्दी</string>
-    <string name="model_locked">Model (stop first)</string>
     <string name="model_none">No detector manifests found in this build.</string>
     <string name="spoken_placeholder">Start guidance, then point the camera ahead.</string>
+    <string name="listening">Watching. Nothing worth announcing yet.</string>
     <string name="stats_idle">Stopped. Volume-down starts; volume-up describes, hold to read text.</string>
 </resources>

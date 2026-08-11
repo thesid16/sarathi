@@ -47,8 +47,23 @@ class CameraSource(private val context: Context) {
      */
     private var preview: Preview? = null
 
+    /**
+     * The surface the UI wants, remembered rather than applied immediately.
+     *
+     * `bindToLifecycle` runs inside an async listener, so the Preview use case
+     * does not exist for some hundreds of milliseconds after `start()`
+     * returns. A screen that attaches during that window used to hit a null
+     * and be dropped silently, with nothing retrying - which produced a live,
+     * correctly-detecting app drawing boxes onto a black rectangle.
+     *
+     * Storing the request and applying it whenever either side becomes ready
+     * removes the race rather than timing it.
+     */
+    private var wantedSurface: Preview.SurfaceProvider? = null
+
     /** Attach a live view, or pass null to release it. Safe at any time. */
     fun setPreviewSurface(providerOrNull: Preview.SurfaceProvider?) {
+        wantedSurface = providerOrNull
         preview?.setSurfaceProvider(providerOrNull)
     }
 
@@ -101,7 +116,11 @@ class CameraSource(private val context: Context) {
                 }
             }
 
-            val previewUseCase = Preview.Builder().build().also { preview = it }
+            val previewUseCase = Preview.Builder().build().also {
+                preview = it
+                // Apply whatever the UI asked for while this was being built.
+                it.setSurfaceProvider(wantedSurface)
+            }
 
             cameraProvider.unbindAll()
             cameraProvider.bindToLifecycle(
@@ -113,6 +132,7 @@ class CameraSource(private val context: Context) {
     fun stop() {
         preview?.setSurfaceProvider(null)
         preview = null
+        wantedSurface = null
         provider?.unbindAll()
         provider = null
         executor.shutdown()

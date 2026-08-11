@@ -49,6 +49,21 @@ class SaliencyEngine(private val config: Config = Config()) {
     private val lastDistanceSpoken = mutableMapOf<Int, Double>()
     private var lastUtteranceAt = Long.MIN_VALUE / 4
 
+    /**
+     * The strongest candidate considered on the last pass, and why it lost.
+     *
+     * Silence is this system's most common output and its most ambiguous one.
+     * "Nothing here is worth saying" and "the pipeline is broken" produce
+     * exactly the same thing - nothing - and after a demo where the app was in
+     * fact broken, being unable to tell those apart is what made it
+     * undemonstrable rather than merely quiet.
+     *
+     * So the engine now records its reasoning. Nothing depends on this; it is
+     * read by the screen and by logs, and it costs one assignment per pass.
+     */
+    var lastReason: String = "no detections"
+        private set
+
     fun score(track: Track): Ranked {
         val distance = track.distanceM
         val proximity: Double
@@ -93,10 +108,32 @@ class SaliencyEngine(private val config: Config = Config()) {
     /** The one thing worth saying right now, or nothing. */
     fun select(tracks: List<Track>, nowMs: Long): Ranked? {
         val ranked = tracks.map { score(it) }.sortedByDescending { it.score }
+        if (ranked.isEmpty()) {
+            lastReason = "no detections"
+            return null
+        }
+        val best = ranked.first()
+        lastReason = when {
+            best.track.hazard == Hazard.LOW && !config.announceLowHazard ->
+                "${best.track.label}: low hazard, context only"
+            best.track.distanceM != null && best.track.distanceM!! > config.maxDistanceM ->
+                "${best.track.label}: %.1f m, beyond %.0f m".format(
+                    best.track.distanceM, config.maxDistanceM
+                )
+            best.score < config.scoreFloor ->
+                "${best.track.label}: %.2f below %.2f".format(best.score, config.scoreFloor)
+            else -> "${best.track.label}: %.2f".format(best.score)
+        }
         for (candidate in ranked) {
             if (candidate.score < config.scoreFloor && !candidate.urgent) break
-            if (!passesCooldown(candidate, nowMs)) continue
-            if (!candidate.urgent && nowMs - lastUtteranceAt < config.minUtteranceGapMs) continue
+            if (!passesCooldown(candidate, nowMs)) {
+                lastReason = "${candidate.track.label}: recently said"
+                continue
+            }
+            if (!candidate.urgent && nowMs - lastUtteranceAt < config.minUtteranceGapMs) {
+                lastReason = "${candidate.track.label}: too soon after the last"
+                continue
+            }
             markSpoken(candidate, nowMs)
             return candidate
         }

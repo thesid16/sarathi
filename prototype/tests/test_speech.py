@@ -120,21 +120,21 @@ def test_missing_bearing_is_treated_as_ahead():
 
 
 @pytest.mark.parametrize(("metres", "expected"), [
-    (0.4, "half a metre"), (1.0, "one metre"), (1.5, "one and a half metres"),
-    (2.2, "two metres"), (3.0, "three metres"), (5.2, "five metres"), (40.0, "six metres"),
+    (0.4, "one and a half feet"), (1.0, "three and a half feet"), (1.5, "five feet"),
+    (2.2, "seven feet"), (3.0, "ten feet"), (5.2, "sixteen feet"), (40.0, "twenty feet"),
 ])
 def test_distance_is_rounded_to_something_worth_hearing(metres, expected):
     assert PhraseBook.load("en").distance_phrase(metres) == expected
 
 
 def test_hindi_uses_the_single_word_for_one_and_a_half():
-    assert PhraseBook.load("hi").distance_phrase(1.5) == "डेढ़ मीटर"
+    assert PhraseBook.load("hi").distance_phrase(1.5) == "पाँच फुट"
 
 
 def test_low_confidence_distances_are_hedged():
     book = PhraseBook.load("en")
-    assert book.distance_phrase(3.0, uncertainty=0.05) == "three metres"
-    assert book.distance_phrase(3.0, uncertainty=0.5) == "about three metres"
+    assert book.distance_phrase(3.0, uncertainty=0.05) == "ten feet"
+    assert book.distance_phrase(3.0, uncertainty=0.5) == "about ten feet"
 
 
 def test_no_distance_yields_no_words():
@@ -161,22 +161,22 @@ def test_urgent_alerts_are_shorter_than_normal_ones():
 
 def test_a_normal_announcement_names_object_bearing_and_distance():
     utt = Phraser(lang="en").utterance(ranked("chair", 1.6, 35.0, Hazard.HIGH))
-    assert utt.text == "chair, one o'clock, one and a half metres"
+    assert utt.text == "chair, one o'clock, five feet"
 
 
 def test_something_straight_ahead_reads_naturally():
     utt = Phraser(lang="en").utterance(ranked("car", 5.0, 2.0, Hazard.CRITICAL))
-    assert utt.text == "car ahead, five metres"
+    assert utt.text == "car ahead, sixteen feet"
 
 
 def test_hindi_utterance_is_devanagari_and_well_formed():
     utt = Phraser(lang="hi").utterance(ranked("chair", 1.6, 35.0, Hazard.HIGH))
-    assert utt.text == "कुर्सी, दाईं ओर, डेढ़ मीटर"
+    assert utt.text == "कुर्सी, दाईं ओर, पाँच फुट"
     assert utt.lang == "hi"
 
 
 def test_topic_is_keyed_on_the_object_not_the_sentence():
-    """So a chair ticking from 'two metres' to 'one and a half' is one subject."""
+    """So a chair ticking from 'seven feet' to 'five feet' is one subject."""
     phraser = Phraser(lang="en")
     near = phraser.utterance(ranked("chair", 1.4, 0.0, Hazard.HIGH))
     nearer = phraser.utterance(ranked("chair", 1.1, 0.0, Hazard.HIGH))
@@ -213,10 +213,10 @@ def test_speech_is_dropped_not_queued_while_busy():
     """Queued speech describes a world the user has already walked through."""
     speaker = RecordingSpeaker(speech_rate_cps=10.0)
     voice = VoiceOutput(speaker)
-    assert voice.say(utt("chair, one o'clock, two metres"), now=0.0) is True
-    assert voice.say(utt("bin ahead, three metres"), now=1.0) is False
+    assert voice.say(utt("chair, one o'clock, seven feet"), now=0.0) is True
+    assert voice.say(utt("bin ahead, ten feet"), now=1.0) is False
     assert voice.dropped_count == 1
-    assert speaker.transcript == ["chair, one o'clock, two metres"]
+    assert speaker.transcript == ["chair, one o'clock, seven feet"]
 
 
 def test_speech_resumes_once_the_channel_is_free():

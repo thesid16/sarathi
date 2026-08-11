@@ -111,7 +111,7 @@ class SceneDescriber(
      * logged for whoever is diagnosing, not surfaced as four different failures
      * the user would have to tell apart by ear.
      */
-    fun describe(bitmap: Bitmap, prompt: String): String? {
+    fun describe(bitmap: Bitmap, prompt: String, systemInstruction: String? = null): String? {
         if (!busy.compareAndSet(false, true)) {
             Log.i(TAG, "already describing; request dropped")
             return null
@@ -130,7 +130,14 @@ class SceneDescriber(
             val started = System.currentTimeMillis()
             val answer = engine.createConversation(
                 ConversationConfig(
-                    systemInstruction = Contents.of(Content.Text(SYSTEM_INSTRUCTION)),
+                    // From the phrase book when supplied, so the language the
+                    // answer comes back in follows the user's language. The
+                    // question alone does not decide it: an English
+                    // instruction pulls the model back to English however the
+                    // question is phrased.
+                    systemInstruction = Contents.of(
+                        Content.Text(systemInstruction ?: SYSTEM_INSTRUCTION)
+                    ),
                     // A hard ceiling, not a hint. The system instruction asks
                     // for one sentence and a model may still write a paragraph;
                     // this bounds both the wait and the length of speech that
