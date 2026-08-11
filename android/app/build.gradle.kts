@@ -13,8 +13,14 @@ android {
         // reaches essentially every phone still in use in the target market.
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
+
+        // Phones only. x86 and x86_64 are 38.6 MB of the APK and exist for
+        // emulators; no Android phone in the target market runs them. Dropping
+        // them takes the download from 92 MB to 53 MB, which matters when the
+        // people receiving it are on metered connections.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     // Signed with a key committed to this repository, on purpose.

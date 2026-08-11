@@ -11,6 +11,8 @@ package `in`.sarathi.app.models
 data class ModelManifest(
     val id: String,
     val task: String,
+    /** Declared sha256 per format, when the manifest states one. */
+    val checksums: Map<String, String> = emptyMap(),
     val license: String,
     val distribution: String,
     val files: Map<String, String>,
@@ -43,6 +45,13 @@ data class ModelManifest(
     }
 
     /** The weights file for this platform, resolved through `runtime`. */
+    /** Declared sha256 for the weights this platform uses, if any. */
+    fun checksumFor(platform: String = "android"): String? {
+        val engine = runtime[platform] ?: platform
+        val format = ENGINE_FORMATS[engine] ?: engine
+        return checksums[format] ?: checksums[engine]
+    }
+
     fun fileFor(platform: String = "android"): String? {
         val engine = runtime[platform] ?: platform
         val format = ENGINE_FORMATS[engine] ?: engine
@@ -66,19 +75,28 @@ data class ModelManifest(
 
         @Suppress("UNCHECKED_CAST")
         fun from(root: Map<String, Any?>): ModelManifest {
-            val files = (root["files"] as? Map<String, Any?> ?: emptyMap()).mapValues { (_, v) ->
+            val filesRaw = root["files"] as? Map<String, Any?> ?: emptyMap()
+            val files = filesRaw.mapValues { (_, v) ->
                 when (v) {
                     is String -> v
                     is Map<*, *> -> v["path"] as? String ?: ""
                     else -> ""
                 }
             }
+            // The declared checksum, previously discarded by this parser. It
+            // is the only thing that can tell a complete download from a
+            // plausible-looking one: a file can have exactly the right length
+            // and the right header and still be wrong in the middle.
+            val checksums = filesRaw.mapNotNull { (k, v) ->
+                (v as? Map<*, *>)?.get("sha256")?.toString()?.let { k to it }
+            }.toMap()
             return ModelManifest(
                 id = root["id"] as? String ?: error("manifest is missing `id`"),
                 task = root["task"] as? String ?: error("manifest is missing `task`"),
                 license = root["license"] as? String ?: "unknown",
                 distribution = root["distribution"] as? String ?: "bundled",
                 files = files,
+                checksums = checksums,
                 runtime = (root["runtime"] as? Map<String, String>) ?: emptyMap(),
                 input = (root["input"] as? Map<String, Any?>)?.let { InputSpec.from(it) },
                 output = (root["output"] as? Map<String, Any?>)?.let { OutputSpec.from(it) },

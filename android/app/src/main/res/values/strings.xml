@@ -16,6 +16,13 @@
     <string name="read_label">Read text</string>
     <string name="describe_missing">Describe scene — model not installed</string>
     <string name="model_label">Model</string>
+    <string name="vlm_download_title">Download scene description?</string>
+    <string name="vlm_download_detail">Describing a scene uses Gemma 4, a 2.4 GB model that is too large to ship inside the app.\n\nIt downloads once and then works offline forever. Everything else in Sarathi already works without it.</string>
+    <string name="vlm_download_wifi">Download on Wi-Fi</string>
+    <string name="vlm_download_any">Use any connection</string>
+    <string name="vlm_download_started">Downloading the scene model. It continues in the background — progress is in your notifications.</string>
+    <string name="vlm_download_failed">Could not start the download. Check storage and connection.</string>
+    <string name="vlm_downloading">Still downloading: %1$s</string>
     <string name="vlm_missing_detail">Scene description needs the Gemma model (2.4 GB), which is not bundled — it would make the app larger than many phones can install.\n\nCopy gemma-4-E2B-it.litertlm into this folder, then reopen Sarathi. The folder is visible over USB.</string>
     <string name="lang_short">हिन्दी</string>
     <string name="model_none">No detector manifests found in this build.</string>

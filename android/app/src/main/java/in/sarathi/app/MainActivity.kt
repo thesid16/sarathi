@@ -117,6 +117,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // A completed download arrives as a .part file; promote it here rather
+        // than with a broadcast receiver, because the check is a rename and the
+        // user has to come back to this screen to use it anyway.
+        // Hashing 2.4 GB takes about half a minute, so it runs off the main
+        // thread; the button re-checks availability on the next render anyway.
+        val expected = runCatching {
+            SharedData.manifest(this, "gemma-4-e2b-vlm.yaml").checksumFor("android")
+        }.getOrNull()
+        Thread {
+            runCatching { `in`.sarathi.app.vlm.ModelDownload.finalise(this, expected) }
+                .onSuccess { ready -> if (ready) runOnUiThread { render(GuidanceBus.snapshot) } }
+        }.start()
         GuidanceService.attachPreview(preview.surfaceProvider)
         render(GuidanceBus.snapshot)
     }
@@ -239,7 +251,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(12), 0, dp(12), dp(8))
         }
         describeButton = actionButton(getString(R.string.describe_label), SLATE) {
-            if (vlmAvailable()) send(GuidanceService.ACTION_DESCRIBE) else explainMissingVlm()
+            if (vlmAvailable()) send(GuidanceService.ACTION_DESCRIBE) else offerModelDownload()
         }
         readButton = actionButton(getString(R.string.read_label), SLATE) { send(GuidanceService.ACTION_READ) }
         row.addView(describeButton)
@@ -564,17 +576,42 @@ class MainActivity : AppCompatActivity() {
         getExternalFilesDir(null)?.let { java.io.File(it, name) },
     )
 
-    /** Tell the user where to put the file, rather than only that it is absent. */
-    private fun explainMissingVlm() {
-        val target = getExternalFilesDir("models")?.absolutePath ?: "(external storage unavailable)"
+    /**
+     * Offer to fetch the scene-description model.
+     *
+     * The alternative was a dialog naming a folder and an adb command, which
+     * is a fine answer for a developer and no answer at all for the person the
+     * app is for. This is the only thing in Sarathi that touches the network,
+     * it happens once, and only when asked.
+     */
+    private var downloadId: Long? = null
+
+    private fun offerModelDownload() {
+        downloadId?.let { id ->
+            val progress = `in`.sarathi.app.vlm.ModelDownload.progress(this, id)
+            if (progress != null && progress != "done" && progress != "failed") {
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.describe_label)
+                    .setMessage(getString(R.string.vlm_downloading, progress))
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+                return
+            }
+        }
         AlertDialog.Builder(this)
-            .setTitle(R.string.describe_label)
-            .setMessage(
-                getString(R.string.vlm_missing_detail) + "\n\n" + target +
-                    "\n\nadb push gemma-4-E2B-it.litertlm \\\n  " + target + "/"
-            )
-            .setPositiveButton(android.R.string.ok, null)
+            .setTitle(R.string.vlm_download_title)
+            .setMessage(R.string.vlm_download_detail)
+            .setPositiveButton(R.string.vlm_download_wifi) { _, _ -> beginDownload(true) }
+            .setNeutralButton(R.string.vlm_download_any) { _, _ -> beginDownload(false) }
+            .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    private fun beginDownload(wifiOnly: Boolean) {
+        downloadId = `in`.sarathi.app.vlm.ModelDownload.start(this, wifiOnly)
+        spoken.text = getString(
+            if (downloadId != null) R.string.vlm_download_started else R.string.vlm_download_failed
+        )
     }
 
     private fun requestPermissions() {
