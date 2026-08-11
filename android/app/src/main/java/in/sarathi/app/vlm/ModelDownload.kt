@@ -170,6 +170,26 @@ object ModelDownload {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
+    /**
+     * Abandon a download.
+     *
+     * Needed because "Wi-Fi only" can wait forever rather than fail: a phone
+     * can hold an unmetered Wi-Fi that has no route to the internet alongside a
+     * metered one that does, and DownloadManager will sit on "starting..."
+     * indefinitely waiting for the unmetered one to work. Without a way to
+     * cancel, that state is permanent and the feature is stuck.
+     */
+    fun cancel(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val id = prefs.getLong(KEY_ID, -1L)
+        if (id >= 0) {
+            (context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager)?.remove(id)
+            prefs.edit().remove(KEY_ID).apply()
+            Log.i(TAG, "cancelled download $id")
+        }
+        partial(context)?.delete()
+    }
+
     /** Human-readable progress, or null when nothing is running. */
     fun progress(context: Context, id: Long): String? {
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager

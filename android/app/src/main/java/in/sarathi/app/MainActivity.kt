@@ -594,6 +594,11 @@ class MainActivity : AppCompatActivity() {
                     .setTitle(R.string.describe_label)
                     .setMessage(getString(R.string.vlm_downloading, progress))
                     .setPositiveButton(android.R.string.ok, null)
+                    .setNegativeButton(R.string.vlm_download_cancel) { _, _ ->
+                        `in`.sarathi.app.vlm.ModelDownload.cancel(this)
+                        downloadId = null
+                        spoken.text = getString(R.string.vlm_download_cancelled)
+                    }
                     .show()
                 return
             }
@@ -601,8 +606,8 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(R.string.vlm_download_title)
             .setMessage(R.string.vlm_download_detail)
-            .setPositiveButton(R.string.vlm_download_wifi) { _, _ -> beginDownload(true) }
-            .setNeutralButton(R.string.vlm_download_any) { _, _ -> beginDownload(false) }
+            .setPositiveButton(R.string.vlm_download_now) { _, _ -> beginDownload(false) }
+            .setNeutralButton(R.string.vlm_download_wifi) { _, _ -> beginDownload(true) }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
