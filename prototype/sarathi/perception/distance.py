@@ -172,6 +172,33 @@ class DistanceEstimate:
     uncertainty: float = 1.0
 
 
+#: How far below the horizon a box bottom must sit for the ground-plane
+#: estimate to mean anything, as a fraction of the frame height.
+#:
+#: The ground-distance curve is `h / tan(depression)`, which goes to infinity
+#: as the contact row approaches the horizon. A few rows either side of it are
+#: the difference between "far" and "impossibly far", and no detector places a
+#: box bottom to that precision.
+CONTACT_MARGIN_FRACTION = 0.04
+
+
+def _contact_is_usable(y2: float, camera: CameraModel, frame_h: int) -> bool:
+    """Whether a box bottom is far enough below the horizon to trust.
+
+    Found by looking at a picture instead of a log. A wall clock in the
+    self-test frame was reported at **54.3 m** while a car in the same frame
+    came out at 1.2 m - the clock hangs high, its box bottom lands just under
+    the horizon, and there a single row of pixels is worth tens of metres.
+
+    Nothing threw. The detection count was correct, the label was correct, and
+    the number was nonsense; on a phone with the screen off it would have been
+    spoken as fact. The fix is not a better prior for clocks - it is refusing
+    to convert a contact row into metres where the arithmetic has no
+    resolution left, whatever the object is.
+    """
+    return y2 >= camera.horizon_y + frame_h * CONTACT_MARGIN_FRACTION
+
+
 def estimate_distance(
     detection: Detection,
     camera: CameraModel,
@@ -191,7 +218,7 @@ def estimate_distance(
     truncated = y2 >= frame_h - 1.5
 
     ground = None
-    if prior.grounded and not truncated:
+    if prior.grounded and not truncated and _contact_is_usable(y2, camera, frame_h):
         ground = camera.ground_distance(y2)
 
     size = None

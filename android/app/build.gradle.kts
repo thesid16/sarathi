@@ -77,6 +77,8 @@ dependencies {
     implementation("androidx.camera:camera-core:$camerax")
     implementation("androidx.camera:camera-camera2:$camerax")
     implementation("androidx.camera:camera-lifecycle:$camerax")
+    // PreviewView, for the live feed on screen.
+    implementation("androidx.camera:camera-view:$camerax")
 
     // LiteRT (formerly TFLite). GPU delegate is a separate artifact.
     implementation("com.google.ai.edge.litert:litert:1.2.0")

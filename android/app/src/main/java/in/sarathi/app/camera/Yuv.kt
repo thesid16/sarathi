@@ -84,12 +84,38 @@ object Yuv {
         return out
     }
 
+    /**
+     * Decode to an **upright** bitmap.
+     *
+     * The rotation is not cosmetic and skipping it is not a small error. A
+     * camera sensor is mounted landscape, so a phone held normally in portrait
+     * delivers analysis frames rotated 90 degrees. Feed those to a detector
+     * trained on upright photographs and it sees a world lying on its side:
+     * people are horizontal, doorways are tunnels, and the ground plane runs
+     * off the side of the image instead of the bottom.
+     *
+     * Two things then break at once. Detection collapses - measured on a Pixel
+     * 8a, live frames never scored above 0.06 while the bundled upright
+     * self-test image scored 0.75 through the identical code path. And every
+     * distance becomes meaningless, because the geometric estimator reads the
+     * bottom edge of a box as the point where the object meets the floor, and
+     * in a sideways frame the bottom edge is a side wall.
+     *
+     * It fails quietly, which is why it survived so long: zero detections is
+     * exactly what an empty room also produces.
+     */
     fun toBitmap(image: ImageProxy, jpegQuality: Int = 88): Bitmap? = runCatching {
         val nv21 = toNv21(image)
         val stream = ByteArrayOutputStream(nv21.size / 4)
         YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
             .compressToJpeg(Rect(0, 0, image.width, image.height), jpegQuality, stream)
         val bytes = stream.toByteArray()
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching null
+        val degrees = image.imageInfo.rotationDegrees
+        if (degrees == 0) return@runCatching decoded
+        val matrix = android.graphics.Matrix().apply { postRotate(degrees.toFloat()) }
+        android.graphics.Bitmap.createBitmap(
+            decoded, 0, 0, decoded.width, decoded.height, matrix, true
+        ).also { if (it != decoded) decoded.recycle() }
     }.getOrNull()
 }

@@ -77,6 +77,18 @@ object Geometry {
      * whichever is currently trustworthy and records which, so a wrong distance
      * is traceable to its source rather than blamed on "the model".
      */
+    /**
+     * How far below the horizon a box bottom must sit before its ground-plane
+     * distance is trusted, as a fraction of frame height.
+     *
+     * Found by looking at a picture rather than a log: a wall clock in the
+     * self-test frame measured **54.3 m** while a car in the same frame
+     * measured 1.2 m. The count was right, the label was right, and only the
+     * number was nonsense - which on a phone used with the screen off would
+     * have been spoken as fact.
+     */
+    const val CONTACT_MARGIN_FRACTION = 0.04f
+
     fun estimate(
         label: String,
         box: FloatArray,          // x1, y1, x2, y2 in frame pixels
@@ -91,7 +103,20 @@ object Geometry {
         // the image and its real floor contact is unknown.
         val truncated = box[3] >= frameHeight - 1.5f
 
-        var ground = if (prior.grounded && !truncated) camera.groundDistance(box[3].toDouble()) else null
+        // The contact row must sit far enough below the horizon for the
+        // arithmetic to mean anything. `h / tan(depression)` runs to infinity
+        // as the bottom edge approaches the horizon, so a few pixels there are
+        // worth tens of metres and no detector places a box that precisely.
+        //
+        // This must stay identical to `_contact_is_usable` in
+        // prototype/sarathi/perception/distance.py. The two implementations
+        // reading the same manifests is the whole design; the phone quietly
+        // computing a different distance from the laptop would defeat it.
+        val contactUsable =
+            box[3] >= camera.horizonY + frameHeight * CONTACT_MARGIN_FRACTION
+        var ground = if (prior.grounded && !truncated && contactUsable) {
+            camera.groundDistance(box[3].toDouble())
+        } else null
         var size = prior.heightM?.let { camera.distanceFromHeight(boxH, it) }
         ground = sane(ground)
         size = sane(size)

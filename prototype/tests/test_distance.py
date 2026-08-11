@@ -239,3 +239,30 @@ def test_elevated_objects_are_not_subject_to_the_ground_bound():
     """A hanging sign clipped by the frame edge is not on the floor."""
     est = estimate_distance(det(500, 300, 560, 720, "sign_board"), CAM, PRIORS, frame_height=720)
     assert est.source == "size"
+
+
+def test_a_contact_row_near_the_horizon_is_refused():
+    """The wall-clock bug, kept.
+
+    A box bottom just under the horizon converts to tens of metres, because
+    `h / tan(depression)` has no resolution left there. A wall clock in the
+    Android self-test frame came out at 54.3 m while a car in the same frame
+    measured 1.2 m. Nothing failed - the count and the label were right and
+    only the number was nonsense, which on a phone with the screen off would
+    have been spoken as fact.
+    """
+    just_below = int(CAM.horizon_y) + 2
+    est = estimate_distance(
+        det(600, just_below - 40, 700, just_below, "something_new"), CAM, PRIORS
+    )
+    assert est.source != "ground"
+
+
+def test_a_contact_row_well_below_the_horizon_is_still_used():
+    """The refusal must not cost ordinary near-field guidance."""
+    well_below = int(CAM.horizon_y + CAM.height * 0.25)
+    est = estimate_distance(
+        det(600, well_below - 60, 700, well_below, "something_new"), CAM, PRIORS
+    )
+    assert est.source == "ground"
+    assert est.distance_m is not None

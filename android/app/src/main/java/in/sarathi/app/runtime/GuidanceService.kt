@@ -74,6 +74,7 @@ class GuidanceService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
 
@@ -93,8 +94,10 @@ class GuidanceService : LifecycleService() {
             }
         }
 
+        val detectorManifest = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("detector", DETECTOR_MANIFEST) ?: DETECTOR_MANIFEST
         detector = runCatching {
-            val manifest = SharedData.manifest(this, DETECTOR_MANIFEST)
+            val manifest = SharedData.manifest(this, detectorManifest)
             val labels = manifest.output?.labels?.let { SharedData.labels(this, "$it.txt") }
                 ?: emptyList()
             LiteRtDetector.create(this, manifest, labels, hazards, bridge)
@@ -102,8 +105,15 @@ class GuidanceService : LifecycleService() {
             Log.w(TAG, "detector unavailable: ${it.message}")
             null
         }
-        Log.i(TAG, if (detector != null) "detector loaded: $DETECTOR_MANIFEST"
+        Log.i(TAG, if (detector != null) "detector loaded: $detectorManifest"
                    else "running WITHOUT a detector - camera and speech only")
+        GuidanceBus.publish {
+            it.copy(
+                running = true,
+                modelId = detectorManifest.removeSuffix(".yaml"),
+                backend = detector?.backend ?: "none",
+            )
+        }
 
         // Constructed always, loaded never - the engine is built on the first
         // press and released again when idle. The manifest is read here only so
@@ -114,8 +124,9 @@ class GuidanceService : LifecycleService() {
             Log.w(TAG, "describer unavailable: ${it.message}")
             null
         }
-        Log.i(TAG, "scene description: " +
-            if (describer?.isInstalled() == true) "weights present" else "not installed")
+        val vlmReady = describer?.isInstalled() == true
+        Log.i(TAG, "scene description: " + if (vlmReady) "weights present" else "not installed")
+        GuidanceBus.publish { it.copy(vlmInstalled = vlmReady) }
 
         // The recogniser is script-specific and the language can change, so it
         // is built here alongside the phrase book rather than lazily.
@@ -159,6 +170,7 @@ class GuidanceService : LifecycleService() {
             return
         }
         voice.say(phrases.systemPhrase("reading"), urgent = false)
+        GuidanceBus.publish { it.copy(busy = "Reading text…") }
         readRequested.set(true)
     }
 
@@ -167,6 +179,10 @@ class GuidanceService : LifecycleService() {
         thread(name = "sarathi-ocr", isDaemon = true) {
             val text = ocr.read(bitmap)
             bitmap.recycle()
+            GuidanceBus.publish {
+                it.copy(busy = "", lastSpoken = text ?: "(no text found)",
+                    lastSpokenAtMs = System.currentTimeMillis())
+            }
             voice.say(text ?: phrases.systemPhrase("no_text"), urgent = false)
             Log.i(TAG, "ocr ${ocr.lastReadMs}ms")
         }
@@ -188,6 +204,9 @@ class GuidanceService : LifecycleService() {
             phrases.systemPhrase(if (vlm.isLoaded()) "describing" else "describing_first_run"),
             urgent = false,
         )
+        GuidanceBus.publish {
+            it.copy(busy = if (vlm.isLoaded()) "Describing…" else "Loading scene model…")
+        }
         describeRequested.set(true)
     }
 
@@ -206,11 +225,25 @@ class GuidanceService : LifecycleService() {
 
         val model = detector ?: return
         val bitmap = frame.toBitmap() ?: return
-        val camModel = cameraModel ?: CameraModel(bitmap.width, bitmap.height).also {
-            cameraModel = it
-        }
+        // Rebuilt whenever the frame dimensions change, not cached once.
+        //
+        // The bitmap is rotated upright, so on a phone turned from portrait to
+        // landscape it goes from 480x640 to 640x480. A camera model built from
+        // the first frame and kept would then hold the wrong principal point
+        // and the wrong horizon row for every frame after the turn - and the
+        // ground-plane distances derived from that horizon would be quietly
+        // wrong rather than absent.
+        val camModel = cameraModel
+            ?.takeIf { it.width == bitmap.width && it.height == bitmap.height }
+            ?: CameraModel(bitmap.width, bitmap.height).also {
+                Log.i(TAG, "camera model ${bitmap.width}x${bitmap.height} " +
+                    "horizon_y=${"%.0f".format(it.horizonY)}")
+                cameraModel = it
+            }
 
         val detections = model.detect(bitmap)
+        val frameW = bitmap.width
+        val frameH = bitmap.height
         detectionCount += detections.size
         inferenceMsTotal += model.lastInferenceMs
         lastMaxScore = model.lastMaxScore
@@ -222,6 +255,16 @@ class GuidanceService : LifecycleService() {
         }
         bitmap.recycle()
 
+        GuidanceBus.publish {
+            it.copy(
+                detections = detections,
+                frameWidth = frameW,
+                frameHeight = frameH,
+                inferenceMs = model.lastInferenceMs,
+                maxScore = model.lastMaxScore,
+            )
+        }
+
         val tracks = tracker.update(detections, now)
         val chosen = saliency.select(tracks, now) ?: return
         val text = phrases.utterance(
@@ -232,6 +275,9 @@ class GuidanceService : LifecycleService() {
         )
         val spoken = voice.say(text, urgent = chosen.urgent, earcon = chosen.urgent)
         utteranceCount++
+        if (spoken) {
+            GuidanceBus.publish { it.copy(lastSpoken = text, lastSpokenAtMs = now) }
+        }
         Log.i(TAG, "say${if (spoken) "" else " [dropped]"}: \"$text\"  " +
             "(${chosen.track.label} ${chosen.track.distanceM?.let { "%.1f m".format(it) } ?: "?"} " +
             "${chosen.track.bearingDeg?.let { "%.0f deg".format(it) } ?: "?"} " +
@@ -251,6 +297,10 @@ class GuidanceService : LifecycleService() {
         thread(name = "sarathi-vlm", isDaemon = true) {
             val answer = vlm.describe(bitmap, phrases.systemPhrase("describe_prompt"))
             bitmap.recycle()
+            GuidanceBus.publish {
+                it.copy(busy = "", lastSpoken = answer ?: "(no description)",
+                    lastSpokenAtMs = System.currentTimeMillis())
+            }
             // Not urgent: a hazard warning arriving mid-description should
             // interrupt it, never the other way round.
             voice.say(answer ?: phrases.systemPhrase("no_description"), urgent = false)
@@ -263,6 +313,14 @@ class GuidanceService : LifecycleService() {
     private fun report(now: Long) {
         if (now - lastReportAt < REPORT_INTERVAL_MS) return
         lastReportAt = now
+        GuidanceBus.publish {
+            it.copy(
+                hz = scheduler.targetHz(scheduler.lastPressure),
+                skipPercent = (scheduler.skipRate * 100).toInt(),
+                activity = scheduler.activity.name,
+                thermalHeadroom = scheduler.lastPressure.toFloat(),
+            )
+        }
         val ran = scheduler.framesRan.coerceAtLeast(1)
         Log.i(TAG, "frames=${scheduler.framesConsidered} ran=${scheduler.framesRan} " +
             "(skip ${"%.0f".format(scheduler.skipRate * 100)}%) " +
@@ -276,6 +334,8 @@ class GuidanceService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        instance = null
+        GuidanceBus.reset()
         describer?.close()
         reader?.close()
         camera.stop()
@@ -317,6 +377,26 @@ class GuidanceService : LifecycleService() {
         private const val NOTIFICATION_ID = 1
         private const val DETECTOR_MANIFEST = "yolo11n-coco-320.yaml"
         private const val VLM_MANIFEST = "gemma-4-e2b-vlm.yaml"
+
+        /**
+         * The live service, or null.
+         *
+         * The screen asks this whether guidance is actually running, instead of
+         * keeping its own boolean. A local flag in the activity drifts the
+         * moment the service is stopped from its notification or killed by the
+         * system, and then the on-demand buttons silently do nothing because
+         * they guard on a flag that disagrees with reality.
+         */
+        @Volatile
+        var instance: GuidanceService? = null
+            private set
+
+        val isRunning: Boolean get() = instance != null
+
+        /** Attach or release a preview surface. No-op when nothing is running. */
+        fun attachPreview(provider: androidx.camera.core.Preview.SurfaceProvider?) {
+            instance?.let { if (it::camera.isInitialized) it.camera.setPreviewSurface(provider) }
+        }
 
         /** Volume-up, short press. Forwarded from the activity. */
         const val ACTION_DESCRIBE = "in.sarathi.app.DESCRIBE"

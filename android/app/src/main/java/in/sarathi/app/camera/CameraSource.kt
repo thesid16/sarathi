@@ -7,6 +7,7 @@ import android.graphics.Rect
 import android.graphics.YuvImage
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.Preview
 import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
@@ -32,6 +33,24 @@ class CameraSource(private val context: Context) {
 
     private val executor = Executors.newSingleThreadExecutor()
     private var provider: ProcessCameraProvider? = null
+
+    /**
+     * The preview stream, bound always and fed to a surface only when a screen
+     * is actually looking.
+     *
+     * Binding it up front rather than rebinding when the UI appears avoids
+     * tearing down and restarting the capture session every time the activity
+     * comes and goes, which on a real device is a visible stall and a burst of
+     * autoexposure hunting. With no surface provider attached CameraX does not
+     * produce preview frames at all, so the cost of an unwatched preview is
+     * the binding and nothing else.
+     */
+    private var preview: Preview? = null
+
+    /** Attach a live view, or pass null to release it. Safe at any time. */
+    fun setPreviewSurface(providerOrNull: Preview.SurfaceProvider?) {
+        preview?.setSurfaceProvider(providerOrNull)
+    }
 
     data class Frame(
         val luma: ByteArray,
@@ -82,12 +101,18 @@ class CameraSource(private val context: Context) {
                 }
             }
 
+            val previewUseCase = Preview.Builder().build().also { preview = it }
+
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, analysis)
+            cameraProvider.bindToLifecycle(
+                owner, CameraSelector.DEFAULT_BACK_CAMERA, analysis, previewUseCase,
+            )
         }, ContextCompat.getMainExecutor(context))
     }
 
     fun stop() {
+        preview?.setSurfaceProvider(null)
+        preview = null
         provider?.unbindAll()
         provider = null
         executor.shutdown()

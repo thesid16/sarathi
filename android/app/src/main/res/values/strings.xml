@@ -11,4 +11,13 @@
     <string name="lang_desc">Switch language between English and Hindi</string>
     <string name="status_idle">Stopped</string>
     <string name="status_running">Guiding</string>
+
+    <string name="describe_label">Describe scene</string>
+    <string name="read_label">Read text</string>
+    <string name="describe_missing">Describe scene — model not installed</string>
+    <string name="model_label">Model</string>
+    <string name="model_locked">Model (stop first)</string>
+    <string name="model_none">No detector manifests found in this build.</string>
+    <string name="spoken_placeholder">Start guidance, then point the camera ahead.</string>
+    <string name="stats_idle">Stopped. Volume-down starts; volume-up describes, hold to read text.</string>
 </resources>
