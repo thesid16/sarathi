@@ -157,6 +157,29 @@ yet measured says so rather than quoting a datasheet.
 > *targets* are set yet either — targets invented before measuring are guesses
 > that get quietly relaxed later.
 
+## See it running
+
+The fastest way to understand what this does is to watch it. The desktop app
+drives the **real pipeline** — same detector, same geometry, same saliency and
+phrasing that run on the phone, reading the same manifests — and draws what it
+sees:
+
+```bash
+cd prototype
+.venv/bin/python -m sarathi.desktop                     # your webcam
+.venv/bin/python -m sarathi.desktop --source walk.mp4   # a recorded walk
+.venv/bin/python -m sarathi.desktop --speak             # with the voice
+```
+
+Boxes coloured by hazard, the distance it computed, what it chose to say and
+what it stayed quiet about, and the numbers behind the decision.
+
+This is not a toy viewer. It earns its place by catching things logs cannot:
+a detector fed sideways frames reports "0 detections", which is also what an
+empty room reports — but a picture with no boxes on an obvious doorway is
+unmistakable. The first minute it existed it exposed a wall clock being
+reported at 54.3 metres.
+
 ## Quickstart
 
 ```bash
