@@ -58,3 +58,8 @@ android/.kotlin/
 # a file, not through a store, and "build it yourself first" is where the
 # handover stops. 92 MB, mostly LiteRT-LM native libraries.
 !sarathi.apk
+
+# The scene-description model staged into the APK for the "full" build.
+# 2.4 GB across three parts - far past GitHub's 100 MB file limit, and
+# reproducible from models/weights by `tools/bundle-model.sh`.
+android/app/src/main/assets/models/gemma-*.litertlm

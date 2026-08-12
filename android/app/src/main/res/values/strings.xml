@@ -18,6 +18,9 @@
     <string name="model_label">Model</string>
     <string name="vlm_download_title">Download scene description?</string>
     <string name="vlm_download_detail">Describing a scene uses Gemma 4, a 2.4 GB model that is too large to ship inside the app.\n\nIt downloads once and then works offline forever. Everything else in Sarathi already works without it.</string>
+    <string name="vlm_unpacking">Setting up scene description… %1$d%%</string>
+    <string name="vlm_unpacked">Scene description is ready. Press Describe scene.</string>
+    <string name="vlm_unpack_failed">Not enough free space to set up scene description. About 3 GB is needed.</string>
     <string name="vlm_download_now">Download now</string>
     <string name="vlm_download_wifi">Wait for Wi-Fi</string>
     <string name="vlm_download_cancel">Cancel download</string>

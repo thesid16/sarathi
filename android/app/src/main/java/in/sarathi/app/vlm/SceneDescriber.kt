@@ -121,6 +121,114 @@ class SceneDescriber(
         return searchPaths(name).firstOrNull { it.exists() }
     }
 
+    /**
+     * Copy the model out of the APK, if it is in there and not yet on disk.
+     *
+     * Bundling it makes one file to share, and costs a one-time copy: LiteRT-LM
+     * takes a filesystem path, not an asset stream, and an asset stored inside
+     * an APK is not one. So the bytes exist twice for as long as the app is
+     * installed - once compressed-out-of-the-way in the APK, once usable.
+     * `noCompress` on `.litertlm` keeps the APK copy from being deflated, which
+     * makes this a straight read rather than a 2.4 GB inflate.
+     *
+     * Runs on a background thread and takes a minute or so. Returns the file,
+     * or null if there is nothing bundled or no room for it.
+     */
+    fun extractFromApkIfNeeded(onProgress: ((Int) -> Unit)? = null): File? {
+        val name = manifest.fileFor("android") ?: return null
+        val existing = searchPaths(name).firstOrNull { it.exists() }
+        if (existing != null) return existing
+
+        // Split across several assets, because a single one cannot exceed 2 GB.
+        //
+        // The Android build tool reads each asset into a JVM byte array, whose
+        // maximum length is Integer.MAX_VALUE, so a 2.4 GB asset fails the
+        // build outright with "Required array size too large". Three parts of
+        // 1.2 GB each are individually fine and are joined back together here.
+        val parts = bundledParts(name)
+        if (parts.isEmpty()) return null   // not bundled in this build
+        val bundledSize = parts.sumOf { part ->
+            runCatching { context.assets.openFd("models/$part").use { it.length } }
+                .getOrDefault(0L)
+        }
+        if (bundledSize <= 0L) return null
+
+        val destination = searchPaths(name).getOrNull(1) ?: return null
+        destination.parentFile?.mkdirs()
+        val free = destination.parentFile?.usableSpace ?: 0L
+        if (free < bundledSize + (256L shl 20)) {
+            Log.w(TAG, "not enough room to unpack: need $bundledSize, have $free")
+            return null
+        }
+
+        // Written beside the target and renamed, so an interrupted copy can
+        // never be mistaken for a usable model - the same rule the download
+        // path learned the hard way.
+        val partial = File(destination.parentFile, "$name.unpacking")
+        if (partial.exists()) partial.delete()
+        Log.i(TAG, "unpacking $name from the app (${bundledSize / 1_000_000} MB)")
+        val started = System.currentTimeMillis()
+        return runCatching {
+            partial.outputStream().use { output ->
+                val buffer = ByteArray(1 shl 20)
+                var copied = 0L
+                var lastPercent = -1
+                for (part in parts) {
+                    context.assets.open("models/$part").use { input ->
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            output.write(buffer, 0, read)
+                            copied += read
+                            val percent = (100 * copied / bundledSize).toInt()
+                            if (percent != lastPercent) {
+                                lastPercent = percent
+                                onProgress?.invoke(percent)
+                            }
+                        }
+                    }
+                }
+                output.flush()
+            }
+            if (partial.length() != bundledSize) {
+                Log.w(TAG, "short copy: ${partial.length()} of $bundledSize")
+                partial.delete()
+                return null
+            }
+            partial.renameTo(destination)
+            Log.i(TAG, "unpacked in ${(System.currentTimeMillis() - started) / 1000}s")
+            destination
+        }.onFailure {
+            Log.w(TAG, "unpack failed: $it")
+            partial.delete()
+        }.getOrNull()
+    }
+
+    /**
+     * The bundled pieces of this model, in order, or empty if none are present.
+     *
+     * Sorted by name, which is why the suffixes are `partaa`, `partab`, ... -
+     * `split`'s default. Numeric suffixes would sort wrongly past nine.
+     */
+    private fun bundledParts(name: String): List<String> = runCatching {
+        val all = context.assets.list("models")?.toList().orEmpty()
+        // `gemma-4-E2B-it.part01.litertlm` - the extension is kept at the end
+        // on purpose. The packager's `noCompress` list matches on extension, so
+        // a part named `.partaa` gets deflated instead of stored, and the build
+        // then tries to compress 1.2 GB in memory and dies.
+        val base = name.substringBeforeLast('.')
+        val extension = name.substringAfterLast('.', "")
+        val split = all
+            .filter { it.startsWith("$base.part") && it.endsWith(".$extension") }
+            .sorted()
+        if (split.isNotEmpty()) split
+        else if (all.contains(name)) listOf(name)
+        else emptyList()
+    }.getOrDefault(emptyList())
+
+    /** Whether this build carries the weights inside it. */
+    fun isBundled(): Boolean = bundledParts(manifest.fileFor("android") ?: "").isNotEmpty()
+
     /** Every location checked, in order. Public so the UI can explain itself. */
     fun searchPaths(name: String): List<File> = listOfNotNull(
         File(File(context.filesDir, "models"), name),

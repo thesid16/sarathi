@@ -251,7 +251,12 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(12), 0, dp(12), dp(8))
         }
         describeButton = actionButton(getString(R.string.describe_label), SLATE) {
-            if (vlmAvailable()) send(GuidanceService.ACTION_DESCRIBE) else offerModelDownload()
+            when {
+                vlmAvailable() -> send(GuidanceService.ACTION_DESCRIBE)
+                // A build that carries the model needs no network at all.
+                vlmBundled() -> unpackBundledModel()
+                else -> offerModelDownload()
+            }
         }
         readButton = actionButton(getString(R.string.read_label), SLATE) { send(GuidanceService.ACTION_READ) }
         row.addView(describeButton)
@@ -570,6 +575,14 @@ class MainActivity : AppCompatActivity() {
         vlmSearchPaths(name).any { it.exists() }
     }.getOrDefault(false)
 
+    /** Whether this build carries the weights inside the APK. */
+    private fun vlmBundled(): Boolean = runCatching {
+        val name = SharedData.manifest(this, "gemma-4-e2b-vlm.yaml").fileFor("android")
+            ?: return false
+        val base = name.substringBeforeLast('.')
+        assets.list("models")?.any { it == name || it.startsWith("$base.part") } == true
+    }.getOrDefault(false)
+
     private fun vlmSearchPaths(name: String): List<java.io.File> = listOfNotNull(
         java.io.File(java.io.File(filesDir, "models"), name),
         getExternalFilesDir("models")?.let { java.io.File(it, name) },
@@ -585,6 +598,39 @@ class MainActivity : AppCompatActivity() {
      * it happens once, and only when asked.
      */
     private var downloadId: Long? = null
+
+    /**
+     * Unpack the bundled model, if this build carries one.
+     *
+     * The full build ships the weights inside the APK so there is one file to
+     * share. They still have to reach the filesystem before LiteRT-LM can open
+     * them, so the first press pays a one-time copy - announced, because a
+     * minute of apparent nothing is how a working app looks broken.
+     */
+    private fun unpackBundledModel() {
+        val describer = `in`.sarathi.app.vlm.SceneDescriber(
+            this, SharedData.manifest(this, "gemma-4-e2b-vlm.yaml")
+        )
+        spoken.text = getString(R.string.vlm_unpacking, 0)
+        setEnabled(describeButton, false)
+        Thread {
+            val file = describer.extractFromApkIfNeeded { percent ->
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        spoken.text = getString(R.string.vlm_unpacking, percent)
+                    }
+                }
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                setEnabled(describeButton, true)
+                spoken.text = getString(
+                    if (file != null) R.string.vlm_unpacked else R.string.vlm_unpack_failed
+                )
+                render(GuidanceBus.snapshot)
+            }
+        }.start()
+    }
 
     private fun offerModelDownload() {
         downloadId?.let { id ->
