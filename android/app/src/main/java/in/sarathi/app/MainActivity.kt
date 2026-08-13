@@ -333,8 +333,9 @@ class MainActivity : AppCompatActivity() {
         // genuine blocker is weights that are not installed.
         // Enabled either way: pressing it when the model is absent explains
         // where to put it, which is more use than a control that cannot be
-        // pressed and cannot say why.
-        setEnabled(describeButton, true)
+        // pressed and cannot say why. The exception is while the bundled model
+        // is being unpacked - that genuinely cannot be started twice.
+        setEnabled(describeButton, !unpacking)
         setEnabled(readButton, true)
         setEnabled(modelButton, !live)
         modelButton.text = getString(R.string.model_label)
@@ -607,7 +608,23 @@ class MainActivity : AppCompatActivity() {
      * them, so the first press pays a one-time copy - announced, because a
      * minute of apparent nothing is how a working app looks broken.
      */
+    /**
+     * True while the bundled model is being copied out of the APK.
+     *
+     * `render()` runs on every pipeline update and sets the button state
+     * unconditionally, so disabling the button inside the unpack was undone
+     * within a frame. A second press then started a second concurrent copy of
+     * the same 2.4 GB file, both writing the same destination.
+     */
+    @Volatile
+    private var unpacking = false
+
     private fun unpackBundledModel() {
+        if (unpacking) {
+            spoken.text = getString(R.string.vlm_unpacking_busy)
+            return
+        }
+        unpacking = true
         val describer = `in`.sarathi.app.vlm.SceneDescriber(
             this, SharedData.manifest(this, "gemma-4-e2b-vlm.yaml")
         )
@@ -621,6 +638,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+            unpacking = false
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 setEnabled(describeButton, true)
