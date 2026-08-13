@@ -16,8 +16,23 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+# Clear any worktree left registered by an interrupted run. Without this the
+# next run fails with "cannot force update the branch used by worktree at ...",
+# which points at a directory that no longer exists.
+git worktree prune
+
 STAGE=$(mktemp -d)
-trap 'rm -rf "$STAGE"' EXIT
+WORKTREE=""
+# Cleanup on ANY exit, not just success. `set -e` means a failed git command
+# jumps straight out, and the tidy-up that used to sit at the end never ran -
+# which is exactly how the stale worktree above got there.
+cleanup() {
+  [ -n "$WORKTREE" ] && git worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
+  [ -n "$WORKTREE" ] && rm -rf "$WORKTREE"
+  rm -rf "$STAGE"
+  git worktree prune
+}
+trap cleanup EXIT
 
 echo "Staging the site..."
 cp docs/assets/report.html "$STAGE/index.html"
@@ -62,7 +77,20 @@ if "Back to the engineering report" not in s:
 PY
 
 WORKTREE=$(mktemp -d)
-git worktree add -f "$WORKTREE" -B gh-pages >/dev/null 2>&1
+
+# Base the worktree on the PUBLISHED branch, not on the current one.
+#
+# `git worktree add -B gh-pages` recreates the branch from wherever HEAD is -
+# i.e. from main - so the resulting commit is not a descendant of what is
+# already published and the push is rejected as non-fast-forward. It works
+# exactly once, the first time, when there is nothing to be a descendant of.
+git fetch -q origin gh-pages 2>/dev/null || true
+if git rev-parse --verify -q origin/gh-pages >/dev/null; then
+  git worktree add -f "$WORKTREE" -B gh-pages origin/gh-pages >/dev/null 2>&1
+else
+  git worktree add -f "$WORKTREE" --orphan gh-pages >/dev/null 2>&1 \
+    || git worktree add -f "$WORKTREE" -B gh-pages >/dev/null 2>&1
+fi
 (
   cd "$WORKTREE"
   find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
@@ -87,9 +115,6 @@ MD
     echo "Published."
   fi
 )
-git worktree remove --force "$WORKTREE" >/dev/null 2>&1
-rm -rf "$WORKTREE"
-
 echo
 echo "  https://thesid16.github.io/sarathi/        the report"
 echo "  https://thesid16.github.io/sarathi/demo/   the live demo"
