@@ -32,9 +32,20 @@ const HAZARD_COLOUR = {
  * Returns the transform so detections can be mapped back to source pixels.
  */
 export function letterbox(source, size, ctx) {
-  const ratio = Math.min(size / source.width, size / source.height);
-  const w = Math.round(source.width * ratio);
-  const h = Math.round(source.height * ratio);
+  // Intrinsic size, not layout size. On a <video>, `.width` is the HTML
+  // attribute - 0 unless someone set it - while the frame is videoWidth. Using
+  // `.width` made ratio Infinity and w/h NaN, and drawImage with non-finite
+  // arguments is specified to return silently. The model then ran, fast and
+  // happily, on the grey fill below: 0 detected, peak score 0.00, no error.
+  const sw = source.videoWidth || source.naturalWidth || source.width;
+  const sh = source.videoHeight || source.naturalHeight || source.height;
+  if (!sw || !sh) {
+    throw new Error(`letterbox: source has no intrinsic size (${sw}x${sh})`);
+  }
+
+  const ratio = Math.min(size / sw, size / sh);
+  const w = Math.round(sw * ratio);
+  const h = Math.round(sh * ratio);
   const padX = Math.floor((size - w) / 2);
   const padY = Math.floor((size - h) / 2);
 

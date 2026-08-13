@@ -232,6 +232,8 @@ function draw(dets) {
 }
 
 let loopErrors = 0;
+// Re-armed on every Start, so switching camera re-checks the new stream.
+let blankSince = 0, blankShown = false;
 
 async function loop() {
   if (!running) return;
@@ -252,9 +254,62 @@ async function loop() {
   requestAnimationFrame(loop);
 }
 
+/**
+ * Is the tensor we are about to run on actually the camera, or just padding?
+ *
+ * This exists because the demo shipped feeding the model a flat grey square:
+ * letterbox() had read `.width` off the <video>, which is the HTML attribute
+ * and therefore 0, and drawImage ignores non-finite arguments without raising.
+ * Inference ran, fast and confident, on the padding colour - 0 detected, peak
+ * score 0.00, no error anywhere. A self-test built around a bundled <img>
+ * would have sailed straight past it, because an <img> has a working .width,
+ * so the check has to look at the frame actually handed to the model.
+ *
+ * Reported rather than thrown, and only after several frames in a row: a lens
+ * flat on a table is indistinguishable from broken wiring in any single frame,
+ * and the difference is that one of them fixes itself when you pick the phone
+ * up. So it clears the moment a real frame arrives.
+ */
+const BLANK_RANGE = 0.02;      // 5/255 - darker than any live sensor's noise
+// Measured in seconds, not frames. A frame budget looks equivalent and is not:
+// on a slow machine five frames can take half a minute, so the warning arrives
+// long after the user has given up, and on a fast one it fires during a blink.
+const BLANK_PATIENCE_MS = 1500;
+
+function frameRange(tensor) {
+  let min = Infinity, max = -Infinity;
+  for (let i = 0; i < tensor.length; i += 97) {   // coprime stride, ~3k samples
+    const v = tensor[i];
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return max - min;
+}
+
 async function step() {
   if (video.readyState >= 2) {
     const t = letterbox(video, SIZE, work);
+
+    const range = frameRange(t.tensor);
+    if (range < BLANK_RANGE) {
+      if (!blankSince) blankSince = performance.now();
+      if (!blankShown && performance.now() - blankSince > BLANK_PATIENCE_MS) {
+        blankShown = true;
+        el("said").firstChild.textContent =
+          `Camera frame is blank (range ${range.toFixed(3)}) — the model is ` +
+          `being fed padding, not video. Uncover the lens; if it stays blank, ` +
+          `this is a bug.`;
+        setState("blank");
+      }
+    } else if (blankSince) {
+      blankSince = 0;
+      if (blankShown) {
+        blankShown = false;
+        el("said").firstChild.textContent = "Point the camera ahead.";
+        setState("live", true);
+      }
+    }
+
     const began = performance.now();
     const out = await session.run({
       [session.inputNames[0]]: new ort.Tensor("float32", t.tensor, [1, 3, SIZE, SIZE]),
@@ -305,6 +360,7 @@ el("toggle").onclick = async () => {
     return;
   }
   running = true; frames = 0; started = performance.now();
+  loopErrors = 0; blankSince = 0; blankShown = false;
   el("toggle").textContent = "Stop";
   setState("live", true);
   loop();
