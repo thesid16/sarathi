@@ -385,6 +385,7 @@ a bad aid.
 
 | | |
 |---|---|
+| **Read it online** | **[thesid16.github.io/sarathi](https://thesid16.github.io/sarathi/)** — the engineering report, with a [live browser demo](https://thesid16.github.io/sarathi/demo/) |
 | **Android** | [`sarathi.apk`](sarathi.apk) — install and it starts. [Full instructions](INSTALL.md) |
 | **Browser** | `cd web && python3 -m http.server 8000` — no install, video never leaves the device |
 | **Desktop** | double-click `run-desktop.command` — the real pipeline in a window |
