@@ -290,13 +290,63 @@ flowchart TD
         <p>Every figure below was read off a Pixel 8a, not estimated. Anything not yet measured says so rather than quoting a datasheet.</p>
 
         <div class="stats">
-          <div class="stat"><div class="v">33<span style="font-size:14px"> ms</span></div><div class="k">detection, INT8 dynamic-range</div></div>
+          <div class="stat"><div class="v">26<span style="font-size:14px"> ms</span></div><div class="k">detection, fine-tuned model</div></div>
+          <div class="stat"><div class="v">61<span style="font-size:14px"> ms</span></div><div class="k">frame conversion — the real cost</div></div>
           <div class="stat"><div class="v">3.6<span style="font-size:14px"> s</span></div><div class="k">scene description, warm</div></div>
-          <div class="stat"><div class="v">720<span style="font-size:14px"> ms</span></div><div class="k">text reading</div></div>
           <div class="stat"><div class="v">182<span style="font-size:14px"> MB</span></div><div class="k">memory, guidance only</div></div>
         </div>
+<h3>Where the time actually goes</h3>
+<p>Instrumenting every stage produced the result that reordered the whole optimization effort.</p>
 
-        <h3>Quantization: the fastest variant detects nothing</h3>
+<div class="scroll">
+  <table>
+    <thead><tr><th>Stage</th><th class="num">Time</th><th>Share of a processed frame</th></tr></thead>
+    <tbody>
+      <tr><td>Motion gate</td><td class="num">1.4 ms</td><td>runs on <em>every</em> captured frame</td></tr>
+      <tr><td><strong>YUV &rarr; upright bitmap</strong></td><td class="num"><strong>61 ms</strong></td><td><strong>51%</strong></td></tr>
+      <tr><td>Detect (preprocess + inference + NMS)</td><td class="num">57 ms</td><td>48%</td></tr>
+      <tr><td>Geometric distance</td><td class="num">0.02 ms</td><td></td></tr>
+      <tr><td>Tracking</td><td class="num">0.12 ms</td><td></td></tr>
+      <tr><td>Saliency</td><td class="num">0.10 ms</td><td></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p><strong>Converting the camera frame cost as much as running the detector on
+it</strong>, and nothing had ever measured it &mdash; the logs reported inference
+latency, and inference latency looked fine. The original path did NV21 &rarr; JPEG
+encode &rarr; JPEG decode &rarr; Bitmap &rarr; rotated Bitmap: four full-image
+passes, two of them a codec, to change a pixel format.</p>
+
+<p>The obvious rewrite made it <em>worse</em>, at 133&nbsp;ms &mdash; a per-pixel
+<code>ByteBuffer.get()</code> is a virtual call, and there are a million per frame,
+losing to libjpeg&rsquo;s native code. Bulk-copying the planes into primitive arrays
+first, where the JIT emits plain loads, reached 61&nbsp;ms. Same arithmetic, same
+output, 2.2&times; apart on where the bytes live.</p>
+
+<p>And everything <em>after</em> detection totals 0.24&nbsp;ms. All the design
+attention in this project went into those stages; none of the time does.</p>
+
+<h3>The model ladder</h3>
+<div class="scroll">
+  <table>
+    <thead><tr><th>Model</th><th class="num">Classes</th><th class="num">Size</th><th class="num">Latency</th><th>For</th></tr></thead>
+    <tbody>
+      <tr><td><code>sarathi26-320</code></td><td class="num">26</td><td class="num">2.8 MB</td><td class="num" style="color:var(--ok)"><strong>26 ms</strong></td><td><strong>Outdoors.</strong> Stairs, manholes, tactile paving</td></tr>
+      <tr><td><code>yolo11n-coco-256</code></td><td class="num">80</td><td class="num">2.9 MB</td><td class="num">28 ms</td><td>A hot phone, or a long walk</td></tr>
+      <tr><td><code>yolo11n-coco-320</code></td><td class="num">80</td><td class="num">2.9 MB</td><td class="num">47 ms</td><td>Indoors. The default</td></tr>
+      <tr><td><code>yolo11s-coco-320</code></td><td class="num">80</td><td class="num">9.8 MB</td><td class="num">120 ms</td><td>Most accurate, on a cool phone</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>The detector this project trained is both the most useful and the <em>fastest</em>.
+Twenty-six classes instead of eighty makes the head <code>[1,30,2100]</code> rather
+than <code>[1,84,2100]</code> &mdash; less compute in the final layers and 64% less
+decode and NMS work every frame. It is also the only one that knows what a staircase
+or an open manhole is; COCO contains neither.</p>
+
+<h3>Quantization: the fastest variant detects nothing</h3>
         <p>Every export <code>onnx2tf</code> can produce, scored against 250 real calibration frames stratified across all five sources.</p>
 
         <div class="scroll">
