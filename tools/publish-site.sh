@@ -36,6 +36,7 @@ trap cleanup EXIT
 
 echo "Staging the site..."
 cp docs/assets/report.html "$STAGE/index.html"
+cp docs/assets/hero.svg "$STAGE/"
 mkdir -p "$STAGE/demo"
 cp web/index.html web/sarathi.js "$STAGE/demo/"
 cp -r web/model "$STAGE/demo/"
@@ -43,38 +44,6 @@ cp -r web/model "$STAGE/demo/"
 # .nojekyll stops GitHub Pages running Jekyll over it, which would ignore any
 # file or folder beginning with an underscore.
 touch "$STAGE/.nojekyll"
-
-python3 - "$STAGE" <<'PY'
-import pathlib, sys
-stage = pathlib.Path(sys.argv[1])
-
-# Cross-links, added here rather than committed into the sources: the report
-# and the demo are also read on their own, where a link to "demo/" would break.
-p = stage / "index.html"
-s = p.read_text()
-if "Try it live" not in s:
-    s = s.replace('    <div class="meta">', '''    <p style="margin-top:22px">
-      <a href="demo/" style="display:inline-block;background:var(--accent-bg);color:#14181B;
-         padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">
-        Try it live in this browser &rarr;</a>
-      <a href="https://github.com/thesid16/sarathi/releases/latest" style="display:inline-block;
-         margin-left:10px;padding:11px 20px;border-radius:8px;text-decoration:none;font-size:15px;
-         border:1px solid var(--rule)">Download the Android app</a>
-    </p>
-    <div class="meta">''', 1)
-    p.write_text(s)
-
-d = stage / "demo" / "index.html"
-s = d.read_text()
-if "Back to the engineering report" not in s:
-    s = s.replace('<h1>Sarathi <span>सारथी · live demo</span></h1>',
-                  '<h1><a href="../" style="text-decoration:none;color:inherit">Sarathi</a>\n'
-                  '    <span>सारथी · live demo</span></h1>', 1)
-    s = s.replace('  Runs entirely in this browser',
-                  '  <a href="../">&larr; Back to the engineering report</a>.\n'
-                  '  Runs entirely in this browser', 1)
-    d.write_text(s)
-PY
 
 WORKTREE=$(mktemp -d)
 

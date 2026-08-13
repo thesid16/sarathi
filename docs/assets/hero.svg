@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 900" role="img"
+     aria-labelledby="heroTitle heroDesc">
+  <title id="heroTitle">Sarathi seeing a pavement</title>
+  <desc id="heroDesc">An illustration of the app's view: a pavement with a
+    descending staircase, an open manhole and a person, each boxed and
+    labelled with a hazard colour and a distance. The app is announcing the
+    staircase, the nearest thing in the walking line.</desc>
+
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B2B36"/>
+      <stop offset="1" stop-color="#2C3E46"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3A4A44"/>
+      <stop offset="1" stop-color="#222C2B"/>
+    </linearGradient>
+    <linearGradient id="path" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4A5A52"/>
+      <stop offset="1" stop-color="#31403C"/>
+    </linearGradient>
+    <!-- The walking corridor: the strip the ranking actually cares about. -->
+    <linearGradient id="corridor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E5A83C" stop-opacity="0"/>
+      <stop offset="1" stop-color="#E5A83C" stop-opacity="0.13"/>
+    </linearGradient>
+    <clipPath id="screen"><rect x="0" y="0" width="720" height="900" rx="4"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#screen)">
+    <rect width="720" height="900" fill="url(#sky)"/>
+    <!-- horizon -->
+    <rect y="300" width="720" height="600" fill="url(#ground)"/>
+
+    <!-- distant buildings, kept very quiet -->
+    <g fill="#243239" opacity="0.85">
+      <rect x="20" y="170" width="90" height="132"/>
+      <rect x="118" y="205" width="62" height="97"/>
+      <rect x="560" y="150" width="104" height="152"/>
+      <rect x="668" y="196" width="52" height="106"/>
+    </g>
+    <g fill="#2F4149" opacity="0.7">
+      <rect x="34" y="188" width="12" height="14"/><rect x="60" y="188" width="12" height="14"/>
+      <rect x="34" y="216" width="12" height="14"/><rect x="86" y="216" width="12" height="14"/>
+      <rect x="578" y="170" width="14" height="16"/><rect x="608" y="170" width="14" height="16"/>
+      <rect x="578" y="202" width="14" height="16"/><rect x="638" y="202" width="14" height="16"/>
+    </g>
+
+    <!-- the pavement, receding -->
+    <path d="M250 300 L470 300 L700 900 L20 900 Z" fill="url(#path)"/>
+    <!-- tactile paving strip along the left edge -->
+    <path d="M250 300 L286 300 L120 900 L20 900 Z" fill="#5A6B5F" opacity="0.55"/>
+    <g fill="#7C8F80" opacity="0.5">
+      <circle cx="272" cy="330" r="2.5"/><circle cx="266" cy="380" r="3"/>
+      <circle cx="258" cy="440" r="3.5"/><circle cx="248" cy="510" r="4"/>
+      <circle cx="236" cy="590" r="4.5"/><circle cx="222" cy="680" r="5"/>
+      <circle cx="206" cy="780" r="5.5"/><circle cx="188" cy="880" r="6"/>
+    </g>
+
+    <!-- the walking corridor -->
+    <path d="M330 300 L392 300 L500 900 L235 900 Z" fill="url(#corridor)"/>
+
+    <!-- descending staircase, straight ahead: the critical hazard -->
+    <g>
+      <path d="M300 512 L432 512 L444 556 L288 556 Z" fill="#33403C"/>
+      <path d="M292 556 L444 556 L458 604 L278 604 Z" fill="#2A3532"/>
+      <path d="M282 604 L458 604 L474 658 L266 658 Z" fill="#222B29"/>
+      <path d="M270 658 L474 658 L492 720 L252 720 Z" fill="#1B2321"/>
+      <g stroke="#4C5C55" stroke-width="2" opacity="0.75">
+        <path d="M300 512 L432 512"/><path d="M292 556 L444 556"/>
+        <path d="M282 604 L458 604"/><path d="M270 658 L474 658"/>
+      </g>
+    </g>
+
+    <!-- open manhole, off to the right -->
+    <ellipse cx="592" cy="632" rx="62" ry="24" fill="#12181A"/>
+    <ellipse cx="592" cy="626" rx="62" ry="24" fill="#0B0F10"/>
+    <path d="M530 626 A62 24 0 0 1 654 626" fill="none" stroke="#5A6B62" stroke-width="3"/>
+
+    <!-- a person, further away and off the line -->
+    <g fill="#485A63">
+      <circle cx="171" cy="392" r="13"/>
+      <path d="M158 408 h26 l7 52 h-40 z"/>
+      <rect x="164" y="460" width="7" height="42" rx="3"/>
+      <rect x="176" y="460" width="7" height="42" rx="3"/>
+    </g>
+
+    <!-- ================= detection overlay ================= -->
+    <!-- critical: in the corridor and nearest -->
+    <g>
+      <rect x="252" y="500" width="248" height="230" fill="none"
+            stroke="#FF5252" stroke-width="5" rx="4"/>
+      <rect x="252" y="466" width="232" height="34" fill="#FF5252" rx="3"/>
+      <text x="264" y="490" font-family="ui-monospace, Menlo, monospace"
+            font-size="20" font-weight="700" fill="#101315">stairs down · 4 ft</text>
+    </g>
+    <!-- critical, but off the walking line -->
+    <g>
+      <rect x="524" y="596" width="140" height="62" fill="none"
+            stroke="#FF5252" stroke-width="4" rx="4"/>
+      <rect x="500" y="566" width="164" height="30" fill="#FF5252" rx="3"/>
+      <text x="510" y="588" font-family="ui-monospace, Menlo, monospace"
+            font-size="17" font-weight="700" fill="#101315">manhole · 9 ft</text>
+    </g>
+    <!-- high hazard, far and to the side -->
+    <g>
+      <rect x="150" y="374" width="46" height="132" fill="none"
+            stroke="#FF9130" stroke-width="3" rx="3"/>
+      <rect x="150" y="350" width="128" height="24" fill="#FF9130" rx="3"/>
+      <text x="158" y="368" font-family="ui-monospace, Menlo, monospace"
+            font-size="15" font-weight="700" fill="#101315">person · 21 ft</text>
+    </g>
+  </g>
+</svg>
