@@ -11,6 +11,12 @@ dependencies = [
     "opencv-python>=4.9",
     "pyyaml>=6.0",
     "onnxruntime>=1.17",
+    # The desktop app renders frames through Pillow. It is imported lazily
+    # inside the draw loop, so leaving it undeclared does not fail at import -
+    # the window opens, and then dies on the first frame. A missing dependency
+    # that surfaces only when the feature is used is worse than one that fails
+    # at startup.
+    "pillow>=10.0",
 ]
 
 [project.optional-dependencies]
@@ -20,6 +26,9 @@ depth = ["torch>=2.2", "torchvision>=0.17"]
 ocr = ["rapidocr-onnxruntime>=1.3"]
 # Speech output on non-macOS hosts (macOS uses the built-in `say` binary).
 tts = ["pyttsx3>=2.90"]
+# Scene description with Gemma 4. Pinned to the same version the Android app
+# uses, so a description read on a laptop is the description the phone gives.
+vlm = ["litert-lm==0.15.0"]
 dev = ["pytest>=8.0", "ruff>=0.4", "onnx>=1.16"]
 
 [project.scripts]
