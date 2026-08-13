@@ -17,6 +17,7 @@
 html{scroll-behavior:smooth}
 body{
   margin:0; background:var(--ink); color:var(--paper);
+  overflow-x:hidden;
   font:16.5px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   -webkit-font-smoothing:antialiased;
 }
@@ -86,7 +87,7 @@ h3{font-size:20px;margin:38px 0 10px;font-weight:640;letter-spacing:-.012em}
 /* ------------------------------------------------------------- numbers -- */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));
   gap:14px;margin:34px 0 0}
-.stat{background:var(--panel);border:1px solid var(--rule);border-radius:13px;padding:19px}
+.stat{background:var(--panel);border:1px solid var(--rule);border-radius:13px;padding:19px;min-width:0}
 .stat .v{font-size:31px;font-weight:660;letter-spacing:-.03em;line-height:1;
   font-variant-numeric:tabular-nums}
 .stat .v em{font-style:normal;font-size:14px;color:var(--mute);font-weight:500}
@@ -98,8 +99,9 @@ h3{font-size:20px;margin:38px 0 10px;font-weight:640;letter-spacing:-.012em}
 .ledger h4{margin:0;padding:13px 18px;font-size:11.5px;letter-spacing:.13em;
   text-transform:uppercase;color:var(--dim);font-weight:600;
   border-bottom:1px solid var(--rule)}
-.row{display:grid;grid-template-columns:92px 1fr;gap:16px;padding:13px 18px;
+.row{display:grid;grid-template-columns:92px minmax(0,1fr);gap:16px;padding:13px 18px;
   align-items:baseline;border-bottom:1px solid rgba(36,46,51,.55)}
+.row .what{overflow-wrap:anywhere}
 .row:last-child{border-bottom:0}
 .tag{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;
   padding:4px 9px;border-radius:5px;text-align:center}
@@ -113,7 +115,7 @@ h3{font-size:20px;margin:38px 0 10px;font-weight:640;letter-spacing:-.012em}
 .pipe{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));
   gap:12px;margin:32px 0 0}
 .stage{background:var(--panel);border:1px solid var(--rule);border-radius:13px;
-  padding:17px;position:relative;overflow:hidden}
+  padding:17px;position:relative;overflow:hidden;min-width:0}
 .stage.hot{border-color:rgba(229,168,60,.42);
   background:linear-gradient(180deg,rgba(229,168,60,.09),var(--panel))}
 .stage .n{font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
@@ -127,7 +129,7 @@ h3{font-size:20px;margin:38px 0 10px;font-weight:640;letter-spacing:-.012em}
 .bar{display:grid;grid-template-columns:186px 1fr 74px;gap:14px;align-items:center;
   font-size:14px}
 .bar .lab{color:#C7D2CE}
-.bar .track{background:var(--panel2);border-radius:6px;height:26px;overflow:hidden}
+.bar .track{background:var(--panel2);border-radius:6px;height:26px;overflow:hidden;min-width:0}
 .bar .fill{height:100%;border-radius:6px;background:var(--dim);
   display:block;min-width:3px}
 .bar .fill.a{background:linear-gradient(90deg,var(--amber-d),var(--amber))}
@@ -152,7 +154,11 @@ tbody tr:hover{background:rgba(26,34,38,.5)}
 /* ------------------------------------------------------------- finding -- */
 .finds{display:grid;gap:16px;margin:30px 0 0}
 .find{background:var(--panel);border:1px solid var(--rule);border-left:3px solid var(--crit);
-  border-radius:12px;padding:22px 24px}
+  border-radius:12px;padding:22px 24px;
+  /* Grid items default to min-width:auto, so a 520px-wide table inside one
+     refuses to shrink and pushes the whole page sideways. The table has its
+     own horizontal scroller; this lets the card honour it. */
+  min-width:0}
 .find.warn{border-left-color:var(--high)}
 .find .sev{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;
   color:var(--crit);font-weight:700}
