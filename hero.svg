@@ -98,9 +98,9 @@
     <g>
       <rect x="524" y="596" width="140" height="62" fill="none"
             stroke="#FF5252" stroke-width="4" rx="4"/>
-      <rect x="470" y="566" width="196" height="30" fill="#FF5252" rx="3"/>
-      <text x="480" y="588" font-family="ui-monospace, Menlo, monospace"
-            font-size="18" font-weight="700" fill="#101315">open manhole · 9 ft</text>
+      <rect x="500" y="566" width="164" height="30" fill="#FF5252" rx="3"/>
+      <text x="510" y="588" font-family="ui-monospace, Menlo, monospace"
+            font-size="17" font-weight="700" fill="#101315">manhole · 9 ft</text>
     </g>
     <!-- high hazard, far and to the side -->
     <g>
