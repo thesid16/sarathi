@@ -160,10 +160,46 @@ async function openCamera() {
     audio: false,
   });
   video.srcObject = stream;
+
+  // Wait for the frame dimensions to actually exist.
+  //
+  // `play()` resolves when playback begins, which can be before metadata has
+  // arrived - and until it does, videoWidth is 0. Sizing the overlay from a
+  // zero there gives a 0x0 canvas, so every box is drawn into nothing and the
+  // page looks like it is doing absolutely nothing while in fact running the
+  // model on every frame.
+  if (!video.videoWidth) {
+    await new Promise((resolve) => {
+      const done = () => { video.removeEventListener("loadedmetadata", done); resolve(); };
+      video.addEventListener("loadedmetadata", done);
+      setTimeout(done, 3000);   // never hang the UI on a camera that stalls
+    });
+  }
   await video.play();
-  overlay.width = video.videoWidth;
-  overlay.height = video.videoHeight;
+  sizeOverlay();
 }
+
+/**
+ * Match the overlay canvas to the video's *displayed* rectangle.
+ *
+ * The video is letterboxed inside the stage by `object-fit`-like CSS, so the
+ * drawing surface has to line up with the pixels the user sees. Stretching a
+ * 640x480 canvas over the whole stage puts every box slightly off, which reads
+ * as a calibration problem rather than a layout one.
+ */
+function sizeOverlay() {
+  const w = video.videoWidth || 640;
+  const h = video.videoHeight || 480;
+  overlay.width = w;
+  overlay.height = h;
+  const r = video.getBoundingClientRect();
+  const stage = el("stage").getBoundingClientRect();
+  overlay.style.width = r.width + "px";
+  overlay.style.height = r.height + "px";
+  overlay.style.left = (r.left - stage.left) + "px";
+  overlay.style.top = (r.top - stage.top) + "px";
+}
+window.addEventListener("resize", () => { if (running) sizeOverlay(); });
 
 function say(text) {
   if (!speech || !window.speechSynthesis) return;
@@ -194,8 +230,28 @@ function draw(dets) {
   }
 }
 
+let loopErrors = 0;
+
 async function loop() {
   if (!running) return;
+  try {
+    await step();
+  } catch (err) {
+    // An unhandled rejection here used to end the loop with no trace: the
+    // badge stayed "live", the camera stayed on, and nothing ever updated.
+    // Silence is the failure mode this whole project exists to avoid.
+    loopErrors++;
+    console.error(err);
+    if (loopErrors === 1) {
+      el("said").firstChild.textContent = "Inference failed: " + (err.message || err);
+      setState("error");
+    }
+    if (loopErrors > 5) { running = false; return; }
+  }
+  requestAnimationFrame(loop);
+}
+
+async function step() {
   if (video.readyState >= 2) {
     const t = letterbox(video, SIZE, work);
     const began = performance.now();
@@ -230,7 +286,6 @@ async function loop() {
       `<b>${fps.toFixed(1)}</b> fps<br><b>${dets.length}</b> detected<br>` +
       `peak score <b>${maxScore.toFixed(2)}</b>`;
   }
-  requestAnimationFrame(loop);
 }
 
 el("toggle").onclick = async () => {
