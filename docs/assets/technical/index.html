@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Sarathi engineering report: measured latency, quantization and backend results from an offline assistive-vision Android app.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20rx%3D%227%22%20fill%3D%22%230C1012%22%2F%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%227%22%20fill%3D%22%23E5A83C%22%2F%3E%3C%2Fsvg%3E">
+<title>Sarathi — Engineering Report</title>
+<style>
+  :root {
+    /* Same tokens as the front page, so the two read as one document. */
+    --paper: #0C1012;      /* page ground */
+    --paper-2: #141A1D;    /* raised panels */
+    --ink: #E9EDEA;        /* body text */
+    --ink-2: #AEB9BF;      /* secondary */
+    --ink-3: #5E6F79;      /* captions, labels */
+    --rule: #242E33;
+    --accent: #E5A83C;
+    --accent-bg: #E5A83C;
+    --crit: #FF5252;
+    --warn: #FF9130;
+    --ok: #78D6A8;
+    --code-bg: #171E22;
+    --shadow: none;
+    --measure: 68ch;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .display { letter-spacing: -.035em; font-weight: 680; }
+  code, kbd, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+  .layout { display: block; }
+  @media (min-width: 1100px) {
+    .layout { display: grid; grid-template-columns: 190px minmax(0,1fr); gap: 56px; align-items: start; }
+  }
+
+  nav.rail { display: none; }
+  @media (min-width: 1100px) {
+    nav.rail {
+      display: block; position: sticky; top: 32px;
+      padding-top: 6px; border-top: 2px solid var(--ink);
+    }
+    nav.rail ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+    nav.rail a {
+      display: block; padding: 5px 0; color: var(--ink-3); text-decoration: none;
+      font-size: 12.5px; letter-spacing: .04em; text-transform: uppercase;
+      border-bottom: 1px solid transparent;
+    }
+    nav.rail a:hover, nav.rail a:focus-visible { color: var(--ink); border-bottom-color: var(--accent-bg); }
+  }
+
+  header.mast { padding: 68px 0 40px; border-bottom: 2px solid var(--ink); margin-bottom: 44px; }
+  .eyebrow {
+    font-size: 11.5px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--ink-3); margin: 0 0 18px;
+  }
+  h1.title {
+    font-size: clamp(40px, 7vw, 68px); line-height: 1.02; margin: 0 0 6px;
+    font-weight: 680; letter-spacing: -.035em; text-wrap: balance;
+  }
+  .deva { color: var(--ink-3); font-weight: 400; }
+  .standfirst {
+    font-size: clamp(18px, 2.4vw, 22px); line-height: 1.5; color: var(--ink-2);
+    max-width: 46ch; margin: 18px 0 0; text-wrap: balance;
+  }
+  .meta {
+    margin-top: 28px; display: flex; flex-wrap: wrap; gap: 10px 26px;
+    font-size: 13px; color: var(--ink-3);
+  }
+  .meta b { color: var(--ink); font-weight: 600; }
+  .eyebrow .up { color: var(--accent); text-decoration: none; letter-spacing: .1em; }
+  .eyebrow .up:hover { text-decoration: underline; }
+  .alsolinks { margin: 16px 0 0; font-size: 13.5px; color: var(--ink-3); max-width: none; }
+
+  main { padding-bottom: 90px; }
+  section { margin: 0 0 64px; scroll-margin-top: 24px; }
+  h2 {
+    font-size: 13px; letter-spacing: .16em; text-transform: uppercase; font-weight: 600;
+    color: var(--ink); margin: 0 0 22px; padding-bottom: 9px; border-bottom: 1px solid var(--rule);
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  h2 .n { color: var(--accent); font-variant-numeric: tabular-nums; }
+  h3 {
+    font-size: 21px; font-weight: 500; margin: 34px 0 10px; letter-spacing: -.008em;
+    text-wrap: balance;
+  }
+  p, ul, ol { max-width: var(--measure); }
+  p { margin: 0 0 16px; }
+  ul, ol { margin: 0 0 16px; padding-left: 20px; }
+  li { margin-bottom: 7px; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent-bg); outline-offset: 2px; }
+  strong { font-weight: 600; }
+  em.lede { font-style: normal; color: var(--ink-3); }
+
+  code {
+    background: var(--code-bg); padding: .12em .38em; border-radius: 3px;
+    font-size: .875em;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--rule); border-radius: 5px;
+    padding: 16px 18px; overflow-x: auto; font-size: 13px; line-height: 1.55; margin: 0 0 20px;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .scroll { overflow-x: auto; margin: 0 0 22px; -webkit-overflow-scrolling: touch; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 480px; }
+  th, td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 600; border-bottom: 1px solid var(--ink-2);
+  }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .ledger {
+    border: 1px solid var(--rule); border-radius: 5px; background: var(--paper-2);
+    margin: 0 0 24px; overflow: hidden;
+  }
+  .ledger-head {
+    display: flex; gap: 8px; align-items: center; padding: 9px 16px;
+    border-bottom: 1px solid var(--rule);
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .ledger ul { list-style: none; margin: 0; padding: 10px 16px 14px; max-width: none; }
+  .ledger li {
+    display: grid; grid-template-columns: 74px 1fr; gap: 14px; align-items: baseline;
+    padding: 5px 0; margin: 0; font-size: 14.5px;
+  }
+  .tag {
+    font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase;
+    padding: 2px 6px; border-radius: 3px; text-align: center; font-weight: 600;
+  }
+  .tag.spoke { background: var(--accent-bg); color: #14181B; }
+  .tag.quiet { background: transparent; color: var(--ink-3); border: 1px solid var(--rule); }
+  .said { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; }
+  .why { color: var(--ink-3); font-size: 13px; display: block; margin-top: 1px; }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: 1px; background: var(--rule); border: 1px solid var(--rule);
+    border-radius: 5px; overflow: hidden; margin: 0 0 26px;
+  }
+  .stat { background: var(--paper); padding: 15px 16px; }
+  .stat .v {
+    font-size: 26px; font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.1;
+  }
+  .stat .k { font-size: 11.5px; color: var(--ink-3); margin-top: 5px; letter-spacing: .03em; }
+
+  .note {
+    border-left: 3px solid var(--accent-bg); padding: 2px 0 2px 18px;
+    margin: 0 0 22px; color: var(--ink-2); max-width: var(--measure);
+  }
+  .note.crit { border-left-color: var(--crit); }
+  .note.ok { border-left-color: var(--ok); }
+  .note p:last-child { margin-bottom: 0; }
+  .note .label {
+    display: block; font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-3); margin-bottom: 5px;
+  }
+
+  .finding { border-top: 1px solid var(--rule); padding-top: 20px; margin-top: 26px; }
+  .finding:first-of-type { border-top: none; padding-top: 0; }
+  .finding h3 { margin-top: 0; }
+  .sev {
+    display: inline-block; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--crit); font-weight: 600; margin-bottom: 4px;
+  }
+  .sev.quietfail { color: var(--warn); }
+
+/* ------------------------------------------------------------ pipeline -- */
+  .flow { margin: 0 0 26px; padding: 0; max-width: 560px; }
+  .fnode {
+    background: var(--paper-2); border: 1px solid var(--rule); border-radius: 7px;
+    padding: 11px 15px; font-size: 14.5px; line-height: 1.35;
+  }
+  .fnode .fms {
+    display: block; margin-top: 3px; font-size: 12px; color: var(--ink-3);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .fnode.start { border-color: #334148; }
+  .fnode.gate { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  .fnode.skip { opacity: .55; border-style: dashed; }
+  .fnode.out { border-color: #334148; background: #10171A; font-weight: 600; }
+  .fnode.demand { border-style: dashed; }
+  .farrow { width: 100%; height: 26px; margin: 0 auto;
+    background: linear-gradient(var(--rule),var(--rule)) no-repeat center/1px 100%; }
+  .fexit {
+    display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+    padding: 9px 0 3px 22px; margin-left: 14px; border-left: 1px dashed var(--rule);
+  }
+  .fskip {
+    font-size: 13px; color: var(--ink-3); border: 1px dashed var(--rule);
+    border-radius: 6px; padding: 5px 11px;
+  }
+  .flabel {
+    font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .flabel.on {
+    color: var(--accent); background: var(--paper); padding: 2px 7px;
+    position: relative; top: 50%; transform: translateY(-50%); white-space: nowrap;
+  }
+  .farrow { position: relative; display: flex; justify-content: center; }
+  .fside { margin-top: 18px; padding-left: 16px; border-left: 2px dashed var(--rule); }
+
+
+  footer {
+    border-top: 2px solid var(--ink); padding: 26px 0 60px;
+    font-size: 13.5px; color: var(--ink-3);
+  }
+  footer p { max-width: 72ch; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header class="mast">
+    <p class="eyebrow"><a class="up" href="../">← Sarathi</a> · Engineering report · v0.3 · running on hardware</p>
+    <h1 class="title display">Sarathi <span class="deva">सारथी</span></h1>
+    <p class="standfirst">A phone that tells a blind user what is in front of them — fully offline, on mid-range Android, without flattening the battery.</p>
+    <div class="meta">
+      <span><b>406</b> tests</span>
+      <span><b>71</b> commits</span>
+      <span><b>AGPL-3.0</b>, public</span>
+      <span>Measured on <b>Pixel 8a</b> · Tensor G3</span>
+    </div>
+    <p class="alsolinks">
+      <a href="../">Overview, with photographs of it running</a> ·
+      <a href="../demo/">Run the detector in this browser</a> ·
+      <a href="https://github.com/thesid16/sarathi">Source</a>
+    </p>
+  </header>
+
+  <div class="layout">
+    <nav class="rail" aria-label="Sections">
+      <ol>
+        <li><a href="#thesis">The thesis</a></li>
+        <li><a href="#arch">Architecture</a></li>
+        <li><a href="#device">On the device</a></li>
+        <li><a href="#data">Data &amp; accuracy</a></li>
+        <li><a href="#findings">Findings</a></li>
+        <li><a href="#limits">Limitations</a></li>
+        <li><a href="#state">Status</a></li>
+      </ol>
+    </nav>
+
+    <main>
+      <section id="thesis">
+        <h2><span class="n">01</span> The thesis</h2>
+        <p><em class="lede">Sarathi</em> is the charioteer — the one who watches the road and says what is coming. The name is deliberate: this does not restore sight, it guides.</p>
+        <p>The hard problem is not detection. A detector at 5&nbsp;Hz on a street produces hundreds of true detections a minute, and speaking them is not assistance — it is noise. The documented reason people abandon assistive vision tools is that they talk too much. <strong>Restraint is the product.</strong></p>
+
+        <div class="ledger">
+          <div class="ledger-head">One recorded scene · what it said, and what it chose not to</div>
+          <ul>
+            <li><span class="tag spoke">Spoke</span><span><span class="said">"open manhole ahead"</span><span class="why">critical, in the walking corridor at 4 ft — interrupts, earcon first</span></span></li>
+            <li><span class="tag spoke">Spoke</span><span><span class="said">"chair ahead, seven feet"</span><span class="why">score 0.76 against a floor of 0.55</span></span></li>
+            <li><span class="tag quiet">Silent</span><span><span class="said">person, 21 ft, 55°</span><span class="why">6 ft to the side of the walking line — not in the way. Score 0.15</span></span></li>
+            <li><span class="tag quiet">Silent</span><span><span class="said">cup, 3 ft, dead ahead</span><span class="why">low hazard — context, answered on request, never unprompted</span></span></li>
+          </ul>
+        </div>
+
+        <p>Everything downstream follows from that. Ranking is by <strong>metres to the side of the walking line</strong>, not by bearing: a pole thirty degrees off at eight metres is four metres away and irrelevant; the same thirty degrees at one metre is about to be walked into.</p>
+
+        <p>The same principle draws the line between what warns and what merely answers. A detector that misses is silent, and silence is something a blind user already knows how to read. A language model that is wrong is <em>fluent</em>, and there is no way to catch it by ear. So the two live on different sides of a wall.</p>
+      </section>
+
+      <section id="arch">
+        <h2><span class="n">02</span> Architecture</h2>
+        <p>Work is split by <em>how often it has to happen</em>. Running one model on every frame either burns the battery or gives bad guidance.</p>
+
+        <!-- Was a mermaid block. GitHub Pages does not render mermaid, so it would
+     have printed as raw flowchart source; built as plain elements instead, which
+     also means it inherits the palette and stays sharp at any zoom. -->
+<figure class="flow" aria-label="Pipeline: a motion gate decides whether any inference runs at all; detection and depth feed saliency; the on-demand tiers enter only when a button is pressed.">
+  <div class="fnode start">camera frame</div>
+  <div class="farrow"></div>
+
+  <div class="fnode gate">motion gate <span class="fms">~0.1 ms</span></div>
+
+  <div class="fexit">
+    <span class="flabel">unchanged &rarr;</span>
+    <span class="fskip">skip &mdash; no inference</span>
+  </div>
+
+  <div class="farrow"><span class="flabel on">changed</span></div>
+  <div class="fnode">detection + geometric distance
+    <span class="fms">320 px &middot; 33 ms &middot; 1&ndash;8 Hz</span></div>
+
+  <div class="farrow"></div>
+  <div class="fnode">monocular depth
+    <span class="fms">steps, kerbs &middot; 2 Hz</span></div>
+
+  <div class="farrow"></div>
+  <div class="fnode out">saliency &rarr; phrasing &rarr; speech</div>
+
+  <div class="fside">
+    <span class="flabel">volume-up: tap or hold</span>
+    <div class="fnode demand">scene description 3.6 s &middot; text reading 0.7 s
+      <span class="fms">joins only when asked &mdash; never raises a warning</span></div>
+  </div>
+</figure>
+
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Tier</th><th>Runs</th><th class="num">Measured</th><th>Why separated</th></tr></thead>
+            <tbody>
+              <tr><td>Motion gate</td><td>every frame</td><td class="num">~0.1 ms</td><td>A stationary user pointed at a static scene needs no inference at all. Frame-differencing a 64×64 downscale is nearly free.</td></tr>
+              <tr><td>Detection + distance</td><td>gated, 1–8 Hz</td><td class="num">33 ms</td><td>Distance from box geometry and a ground plane — far cheaper than a depth net and accurate enough to say "about four feet".</td></tr>
+              <tr><td>Depth</td><td>2 Hz, moving</td><td class="num">—</td><td>Kerbs, steps and drop-offs have no bounding box to reason about.</td></tr>
+              <tr><td>Text reading</td><td>hold volume-up</td><td class="num">720 ms</td><td>Signs, door numbers, dosages. Wanted often, urgent never.</td></tr>
+              <tr><td>Scene description</td><td>tap volume-up</td><td class="num">3.6 s</td><td>Seconds of latency and gigabytes of memory. Behind a button, both are bounded by how often it is pressed.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Models are data, not code</h3>
+        <p>A model is described by a YAML manifest — input size, colour order, normalisation, decoder, label set, licence. The <strong>same manifests and phrase tables are read by the Python prototype and the Android app</strong>, copied into assets at build time from one place in the repository.</p>
+        <p>That is what keeps a model benchmarked on a laptop meaningful on a phone: the two agree because they parse the same bytes, not because someone reviewed two implementations. Adding Gemma 4 — a model that did not exist when the architecture was written — was a manifest, an adapter and a download.</p>
+
+        <div class="note">
+          <span class="label">Licence policy, enforced in code</span>
+          <p>The registry refuses to load a model marked <code>excluded</code>. Non-commercial weights (CC-BY-NC) are excluded outright: they would block the students, NGOs and researchers this exists for. <code>Depth Anything V2 Small</code> is Apache-2.0 while <em>Base and Large in the same repository</em> are CC-BY-NC — so licence is recorded per checkpoint, not per family, and the excluded manifest is committed with a test asserting it fails to load.</p>
+        </div>
+      </section>
+
+      <section id="device">
+        <h2><span class="n">03</span> On the device</h2>
+        <p>Every figure below was read off a Pixel 8a, not estimated. Anything not yet measured says so rather than quoting a datasheet.</p>
+
+        <div class="stats">
+          <div class="stat"><div class="v">33<span style="font-size:14px"> ms</span></div><div class="k">detection, INT8 dynamic-range</div></div>
+          <div class="stat"><div class="v">3.6<span style="font-size:14px"> s</span></div><div class="k">scene description, warm</div></div>
+          <div class="stat"><div class="v">720<span style="font-size:14px"> ms</span></div><div class="k">text reading</div></div>
+          <div class="stat"><div class="v">182<span style="font-size:14px"> MB</span></div><div class="k">memory, guidance only</div></div>
+        </div>
+
+        <h3>Quantization: the fastest variant detects nothing</h3>
+        <p>Every export <code>onnx2tf</code> can produce, scored against 250 real calibration frames stratified across all five sources.</p>
+
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Variant</th><th class="num">Size</th><th class="num">Latency</th><th class="num">Max class score</th><th>Verdict</th></tr></thead>
+            <tbody>
+              <tr><td>fp32 baseline</td><td class="num">10.60 MB</td><td class="num">7.0 ms</td><td class="num">0.876</td><td>reference</td></tr>
+              <tr><td><strong>dynamic-range</strong></td><td class="num">2.87 MB</td><td class="num">5.7 ms</td><td class="num">0.878</td><td style="color:var(--ok)"><strong>shipped</strong></td></tr>
+              <tr><td>float16</td><td class="num">5.36 MB</td><td class="num">6.3 ms</td><td class="num">0.876</td><td>will not load on CPU</td></tr>
+              <tr><td>full INT8</td><td class="num">2.95 MB</td><td class="num">3.7 ms</td><td class="num" style="color:var(--crit)">0.000</td><td style="color:var(--crit)">broken</td></tr>
+              <tr><td>INT8 + int16 activations</td><td class="num">3.07 MB</td><td class="num">307 ms</td><td class="num">0.879</td><td>46× slower</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p><strong>Full INT8 is the fastest thing on the list and detects nothing.</strong> Box regression survives while the classification head collapses entirely — box rows still peak at 333.8 while class rows go to 0.0000. Post-sigmoid class scores occupy a very small numeric range, and a per-tensor int8 scale rounds every one of them to zero. The textbook fix, int16 activations, restores accuracy exactly and costs 46× the latency, because TFLite has no optimised int16 kernel and falls back to reference implementations.</p>
+
+        <p>Dynamic-range quantization — int8 weights, float32 activations computed at runtime — is the only variant that is smaller, faster and numerically equivalent at once. On the phone that is <strong>69–107 ms → 23–33 ms</strong>, and the second-order effect matters as much: the device runs cool enough that the thermal governor stops having to intervene, so the inference rate is set by the product's policy rather than by heat.</p>
+
+        <h3>The GPU is twice as fast and computes the wrong answer</h3>
+        <p>The app benchmarks candidate backends on first launch and keeps the winner. Every candidate is also scored against a single-threaded CPU run on the same real image, and rejected if it disagrees.</p>
+
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Model</th><th class="num">XNNPACK 4t</th><th class="num">XNNPACK 2t</th><th class="num">GPU</th><th class="num">GPU, fp32</th><th class="num">GPU, no-quant</th><th class="num">OpenGL</th></tr></thead>
+            <tbody>
+              <tr><td>dynamic-range <em>(shipped)</em></td><td class="num" style="color:var(--ok)">60 ms</td><td class="num" style="color:var(--ok)">33 ms</td><td class="num" style="color:var(--crit)">15–32 ms<br>wrong</td><td class="num" style="color:var(--crit)">26 ms<br>wrong</td><td class="num" style="color:var(--crit)">22 ms<br>wrong</td><td class="num" style="color:var(--ink-3)">no shader</td></tr>
+              <tr><td>fp32</td><td class="num" style="color:var(--ok)">73 ms</td><td class="num" style="color:var(--ok)">71 ms</td><td class="num" style="color:var(--ink-3)">refused</td><td class="num" style="color:var(--ink-3)">refused</td><td class="num" style="color:var(--ink-3)">refused</td><td class="num" style="color:var(--ink-3)">refused</td></tr>
+              <tr><td>fp16</td><td class="num" style="color:var(--ink-3)">won't load</td><td class="num" style="color:var(--ink-3)">won't load</td><td class="num" style="color:var(--ink-3)">won't load</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>The GPU accepts the entire graph — <code>Replacing 377 out of 377 node(s)</code> — runs at roughly twice the CPU's speed, and returns a tensor deviating from the CPU by up to <strong>264.5 absolute where the reference value is 43.5</strong>. That is not fp16 rounding: it is 5,717 of 176,400 elements outside a tolerance of <code>0.03 + 2%</code>, scattered across both the box rows and the class rows.</p>
+
+        <p>Three probes rule out the usual explanations. Disabling precision loss changes the error from 264.539 to 264.695. Disabling quantized models produces <em>byte-identical</em> wrong output, so the int8 weight path is not implicated. Forcing OpenGL fails at init with "no shader implementation". And the two float variants remove the last workaround — the delegate refuses the fp32 graph outright, and the fp16 graph cannot be loaded at all.</p>
+
+        <div class="note crit">
+          <span class="label">Why this is the finding, not a footnote</span>
+          <p>Without the agreement check this would have shipped. The app would have selected the GPU for being fastest, run at double the rate, drawn less power, and <strong>announced nothing at all</strong> — because garbage in the class rows produces zero detections, and zero detections is exactly what an empty room also produces. A blind user would have carried a device that felt like it was working.</p>
+        </div>
+
+        <p>The first version of the check nearly failed in the opposite direction: a flat absolute tolerance across the output demands 0.017% relative accuracy of a box coordinate near 300, which fp16 cannot supply by construction. It rejected the GPU for a reason that would have been wrong. Two cheap lessons — <strong>benchmark on a real image</strong>, because a blank tensor drives every class score near zero and any two backends agree on noise; and <strong>log the deviation whether or not it fails</strong>, because "rejected" is not a result.</p>
+
+        <h3>Scene description, and the build that cannot see</h3>
+        <p>Gemma 4 E2B, Apache-2.0, running locally through LiteRT-LM on the GPU. Tap volume-up:</p>
+        <pre><code>"Ahead is a wooden door with a dark panel next to it."</code></pre>
+
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Measurement</th><th class="num">Value</th></tr></thead>
+            <tbody>
+              <tr><td>First-ever engine load</td><td class="num">48.9 s</td></tr>
+              <tr><td>Engine load, kernel cache warm</td><td class="num"><strong>4.4 s</strong></td></tr>
+              <tr><td>Description, engine resident</td><td class="num"><strong>3.6 s</strong></td></tr>
+              <tr><td>App memory, detector only</td><td class="num">182 MB</td></tr>
+              <tr><td>App memory, engine live</td><td class="num" style="color:var(--crit)">3,189 MB</td></tr>
+              <tr><td>App memory, 90 s after last use</td><td class="num" style="color:var(--ok)">253 MB</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Two things came out of that table. Passing a <code>cacheDir</code> so compiled GPU shaders persist is worth <strong>11×</strong> on load — 48.9 s to 4.4 s, same model, same backend, same phone. And <strong>memory is the constraint, not speed.</strong> 3,189 MB is nothing like the 676 MB on the model card; the difference is mapped model pages that are genuinely resident after a prefill. It works on an 8 GB Pixel 8a and cannot work on the 4 GB phones much of this audience owns — hence weights that are downloaded rather than bundled, and an idle unload that is measured to actually give the memory back.</p>
+
+        <p>The first press also says something different from later ones — <em>"Loading the scene model, one moment"</em> rather than <em>"Looking"</em> — because a blind user cannot see a spinner, and forty-nine seconds of silence after a cheerful acknowledgement reads as a crash.</p>
+      </section>
+
+      <section id="data">
+        <h2><span class="n">04</span> Data &amp; accuracy</h2>
+        <p>No data was collected with a camera. Every source is public, and every licence has to survive an AGPL weight release.</p>
+
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Source</th><th>Licence</th><th class="num">Images</th><th>Contributes</th></tr></thead>
+            <tbody>
+              <tr><td>WOTR — Walk On The Road</td><td>MIT</td><td class="num">13,928</td><td>Pedestrian viewpoint. Tactile paving, poles, bollards, street clutter</td></tr>
+              <tr><td>Mendeley stair dataset</td><td>CC BY 4.0</td><td class="num">2,996</td><td>Stair edges <strong>with registered depth maps</strong></td></tr>
+              <tr><td>IDD (India Driving)</td><td>student-use</td><td class="num">41,451</td><td><strong>Held out entirely</strong> — see below</td></tr>
+              <tr><td>Open-Manholes</td><td>CC BY 4.0</td><td class="num">677</td><td>The single most dangerous class in the taxonomy</td></tr>
+              <tr><td>Roboflow stair sets ×2</td><td>CC BY 4.0</td><td class="num">646</td><td>Direction-labelled: up vs. down</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note">
+          <span class="label">A constraint that became the experiment</span>
+          <p>IDD's terms are "free for student use" — a restriction, not the absence of one, and Sarathi ships weights to people who are not students. So it is held out of training entirely.</p>
+          <p>That turns out to be the better methodology. Every <em>training</em> source is Chinese or Western. Holding out Indian road footage means we train on what is available and evaluate on the country the product is for — reading the domain gap off directly instead of hoping it is small.</p>
+        </div>
+
+        <h3>What it detects, held out by source</h3>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Split</th><th class="num">mAP50</th><th class="num">mAP50-95</th><th>Coverage</th></tr></thead>
+            <tbody>
+              <tr><td>Validation</td><td class="num"><strong>0.597</strong></td><td class="num">0.406</td><td>26 of 26 classes</td></tr>
+              <tr><td>Domain hold-out (IDD, India)</td><td class="num">0.219</td><td class="num">0.129</td><td>7 classes overlap</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>The classes that matter most do best, which is the right way round:</p>
+
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Class</th><th class="num">Precision</th><th class="num">Recall</th><th class="num">mAP50</th></tr></thead>
+            <tbody>
+              <tr><td><code>stairs_up</code></td><td class="num">0.930</td><td class="num" style="color:var(--ok)">0.983</td><td class="num">0.986</td></tr>
+              <tr><td><code>stairs_down</code></td><td class="num">0.932</td><td class="num" style="color:var(--ok)">0.950</td><td class="num">0.980</td></tr>
+              <tr><td><code>open_manhole</code></td><td class="num">0.838</td><td class="num" style="color:var(--ok)">0.930</td><td class="num">0.954</td></tr>
+              <tr><td><code>bin</code></td><td class="num">—</td><td class="num" style="color:var(--warn)">0.244</td><td class="num">—</td></tr>
+              <tr><td><code>tactile_paving</code></td><td class="num">—</td><td class="num" style="color:var(--crit)">0.087</td><td class="num">—</td></tr>
+              <tr><td><code>barrier</code></td><td class="num">—</td><td class="num" style="color:var(--crit)">0.000</td><td class="num">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>The 0.219 on Indian road footage is the honest domain-gap number, and it is published rather than buried: a model trained on Chinese and Western pedestrian data does not transfer to Indian streets, and knowing by how much is the point of holding IDD out.</p>
+
+        <h3>What the distribution forced</h3>
+        <p>Of 77 taxonomy classes, <strong>26 ship</strong>. A 77-class head where 51 outputs never fire costs tensor width and NMS work on every frame for nothing — and a class with two training examples does not stay silent, it produces occasional confident nonsense. For a hazard class that is the wrong direction to fail in.</p>
+        <pre><code>stairs_down  stairs_up  step_down  step_up  open_manhole  manhole_cover
+tactile_paving  pole  tree  barrier  traffic_cone  warning_column  bin
+fire_hydrant  car  bus  truck  motorcycle  bicycle  cycle_rickshaw
+person  dog  crosswalk  traffic_light_red  traffic_light_green  sign_board</code></pre>
+        <p>The taxonomy stays at 77 because it is the product's vocabulary, not this checkpoint's. Everything excluded is reported as known-absent in the evaluation rather than left looking supported.</p>
+      </section>
+
+      <section id="findings">
+        <h2><span class="n">05</span> What running it on real hardware found</h2>
+        <p>None of these came from unit tests. All would have shipped silently, and that is the shape almost every real bug in this project has taken: not a crash, but plausible output.</p>
+
+        <div class="finding">
+          <span class="sev">Confidently wrong</span>
+          <h3>A seated person 0.7 m away, reported at 2.78 m</h3>
+          <p>Stable to ±0.02 m across 36 consecutive frames. The ground-plane estimator assumes the bottom of a box is where the object meets the floor; the person's lower body was behind a desk, so the box bottom was the desk edge. The geometry answered the question it was asked, correctly, and the question was wrong.</p>
+          <p>Neither safeguard caught it. The truncation check only fires when a box touches the frame edge — this one did not. And the cross-check against the size prior did not disagree, because a seated person's apparent <em>height</em> is wrong in the same direction. Two estimators sharing an assumption agreed, and their agreement was being read as confidence. The first frames were tagged <code>fused</code> — the highest-confidence source.</p>
+        </div>
+
+        <div class="finding">
+          <span class="sev quietfail">Silent</span>
+          <h3>A desk is not a worse floor. It is an equally good plane.</h3>
+          <p>The depth tier announced <em>"step down ahead"</em> four times in fifteen seconds, at a desk, and the <code>fit_quality</code> gate did not catch it. This turned out not to be a threshold that needed tuning. It is a limit, and it fits in three lines:</p>
+          <pre><code>observed(y) = s · (1 / d(y)) + t      # s, t unknown: the model has no units
+1 / d(y)    = tan(depression) / h     # a horizontal plane at height h
+
+⇒  observed(y) = (s / h) · tan(depression) + t</code></pre>
+          <p>The fit measures <code>s / h</code>. Two unknowns, one equation — so <strong>h cannot be recovered from the plane at all</strong>. Halve the surface height, halve the depth model's scale, and the depth maps are byte-identical. Measured against synthetic ground truth, a floor at 1.2 m and a desk at 0.45 m both score <code>fit_quality</code> of exactly <strong>1.0000</strong>, at any depth scale. The scale invariance that makes this analysis safe on an unknown depth model is precisely what makes it blind to which plane it is looking at.</p>
+          <p>So the scale now comes from outside the depth map, from something the system already computes: the geometric estimator's metres to an object standing on the ground. One such distance pins <code>s</code>, and the surface height follows. A desk at 0.45 m and a floor at 1.2 m are then simply different numbers. With no detection to anchor against there is no scale, and the reading is not trusted — unknown does not read as floor.</p>
+        </div>
+
+        <div class="finding">
+          <span class="sev">Confidently wrong</span>
+          <h3>The quantization that is fastest and blind</h3>
+          <p>Full INT8 runs in 3.7 ms and returns a max class score of 0.0000 while its box rows peak at 333.8. Had latency been the only acceptance criterion — and it very often is — this would have been the obvious choice. What caught it was scoring accuracy on the same calibration set as speed, and reporting the raw head's maximum rather than the detection count, because a detection count of zero is also what an empty room produces.</p>
+        </div>
+
+        <div class="finding">
+          <span class="sev quietfail">Silent</span>
+          <h3>A 1.9 GB model that loads perfectly and cannot see</h3>
+          <p>Gemma 4 publishes several builds. The obvious pick is <code>gemma-4-E2B-it-gpu.litertlm</code> — smaller than the base build, and named after the recommended backend. It loads without complaint in 11 seconds, then fails the moment an image is attached: <code>NOT_FOUND: TF_LITE_VISION_ENCODER</code>. It is a text-only decoder, and nothing on its model card says so.</p>
+          <p>The container does. A <code>.litertlm</code> lists its section names in the first kilobyte, so the check costs a 4 KB range request — before downloading, never mind before loading:</p>
+          <pre><code>curl -sL -r 0-4096 &lt;url&gt; | strings | grep tf_lite
+
+gemma-4-E2B-it-gpu.litertlm   tf_lite_artisan_text_decoder
+gemma-4-E2B-it.litertlm       tf_lite_vision_encoder, tf_lite_vision_adapter, …</code></pre>
+          <p>Both implementations now run that check at load, so a text-only build is refused in milliseconds rather than eleven seconds into a request someone is waiting on.</p>
+        </div>
+
+        <div class="finding">
+          <span class="sev quietfail">Silent</span>
+          <h3>A feature reported as "not installed" while sitting on its own weights</h3>
+          <p>The manifest declared <code>runtime.android: litert-lm</code>. No engine-format table had an entry for that name, so the lookup returned nothing, and the app decided the model was absent. Nothing threw. There is now a test that reads every manifest the project ships and fails if one names a runtime it cannot actually resolve weights for — which immediately found two more manifests promising an Android runtime whose weights had never been exported.</p>
+        </div>
+
+        <div class="finding">
+          <span class="sev quietfail">Silent</span>
+          <h3>A 15% validation split that came out at 79%</h3>
+          <p>Grouping assumed every source organises frames by capture session. WOTR keeps all 13,928 images in one folder, so the entire dataset became a single group and hashed into validation. Compounded by assigning each group independently, which gives the right ratio only in expectation — with a handful of huge groups the variance is enormous.</p>
+          <p>This does not fail loudly. It produces a model that validates beautifully against data it has memorised.</p>
+        </div>
+
+        <div class="finding">
+          <span class="sev quietfail">Silent</span>
+          <h3>Training on a quietly reduced subset</h3>
+          <p>The shipped label set changed from 77 taxonomy ids to 26 compacted ones, and the builder wrote into a directory still holding the previous build's label files. The trainer's response to a bad label is <code>ignoring corrupt image/label</code> — then it carries on. No error, no meaningful warning, zero exit code.</p>
+          <p>That is the worst shape a bug can take here: it does not fail, it just makes every number afterwards mean something slightly different from what it claims.</p>
+        </div>
+      </section>
+
+      <section id="limits">
+        <h2><span class="n">06</span> Limitations</h2>
+        <p>Stated because an assistive tool that silently fails on open manholes is worse than one that documents that it does.</p>
+
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Class</th><th>Hazard</th><th>Why</th></tr></thead>
+            <tbody>
+              <tr><td><code>barrier</code></td><td style="color:var(--warn)">high</td><td>0.000 recall despite training data present — a labelling problem, not a capacity one</td></tr>
+              <tr><td><code>tactile_paving</code></td><td style="color:var(--warn)">high</td><td>0.087 recall. Thin, low-contrast, and nearly always underfoot rather than ahead</td></tr>
+              <tr><td><code>glass_door</code></td><td style="color:var(--crit)">critical</td><td>Hard for any RGB detector</td></tr>
+              <tr><td><code>overhead_wire</code></td><td style="color:var(--crit)">critical</td><td>Thin structures may be unreachable at 320 px input</td></tr>
+              <tr><td><code>handcart</code></td><td style="color:var(--warn)">high</td><td>No labelled public source found</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note crit">
+          <span class="label">The depth tier is still opt-in</span>
+          <p>The reason it false-alarmed is now understood and fixed: the surface height is recovered from a metric anchor instead of guessed from fit quality, and a desk, a counter and a low wall are refused. What has <em>not</em> happened is validation against real kerb footage. The mechanism is correct on synthetic ground truth and unproven on a street, so <code>--depth</code> stays opt-in and <strong>no claim is made about drop-off detection</strong>.</p>
+        </div>
+
+        <div class="note">
+          <span class="label">Scene description has no quality evaluation</span>
+          <p>Every description produced so far was correct, and "every" means a handful, of one doorway. There is no benchmark, no hallucination rate, and no measurement of how it degrades in the dark or in motion. That is exactly why it is on the far side of the wall from anything that warns.</p>
+        </div>
+
+        <div class="note">
+          <span class="label">One dependency is not fully open, and it is named</span>
+          <p>Text recognition uses ML Kit, which is proprietary. The artifacts are the unbundled Play Services variants, so no proprietary model ships inside the APK and recognition happens where the speech engine already lives — a System Library reading that is defensible but not airtight. So OCR is optional and the app is unaffected without it, and an Apache-2.0 alternative stays in the registry. What decided it: on the same sign, the open recogniser read "PLATFORM 3" as "PLATFORM 13" and "Room 214" as "Ro0m 214". A hallucinated digit in a platform number is not a harmless error.</p>
+        </div>
+
+        <p>Two further honest notes. <strong>Synthetic footage cannot validate a detector</strong> — a rendered approaching figure was called a "traffic light" four times and a person zero times; it is fine for testing the scheduler and useless for perception. And <strong>Meta's smart glasses cannot stream to third-party apps</strong>, so no plan here assumes glasses support; the camera layer is a plugin registry regardless.</p>
+      </section>
+
+      <section id="state">
+        <h2><span class="n">07</span> Status</h2>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Component</th><th>State</th></tr></thead>
+            <tbody>
+              <tr><td>Camera sources — phone, ESP32, RTSP, file</td><td style="color:var(--ok)">built, tested</td></tr>
+              <tr><td>Manifest-driven model registry</td><td style="color:var(--ok)">built, tested</td></tr>
+              <tr><td>Detection, distance, tracking, saliency</td><td style="color:var(--ok)">built, tested</td></tr>
+              <tr><td>Bilingual phrasing and speech — English, हिन्दी</td><td style="color:var(--ok)">built, tested</td></tr>
+              <tr><td>Power-aware scheduler</td><td style="color:var(--ok)">built, measured</td></tr>
+              <tr><td>Evaluation harness</td><td style="color:var(--ok)">built, tested</td></tr>
+              <tr><td>Fine-tuned detector · quantized export</td><td style="color:var(--ok)">trained, exported, measured</td></tr>
+              <tr><td>Android app</td><td style="color:var(--ok)">running on a Pixel 8a</td></tr>
+              <tr><td>Backend selection with agreement checking</td><td style="color:var(--ok)">built, measured</td></tr>
+              <tr><td>On-demand text reading</td><td style="color:var(--ok)">built, measured on device</td></tr>
+              <tr><td>Scene description — Gemma 4 E2B</td><td style="color:var(--ok)">built, measured on device</td></tr>
+              <tr><td>Depth tier</td><td style="color:var(--warn)">mechanism fixed, unvalidated on real streets</td></tr>
+              <tr><td>Evaluation walk with a blind user</td><td style="color:var(--ink-3)">not started</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p style="margin-top:26px">The remaining gap is the one that cannot be closed by measurement on a bench. Everything on this page is an engineering result; none of it is evidence that the thing is <em>useful</em>, and that only comes from someone who needs it walking somewhere real with it.</p>
+      </section>
+
+      <footer>
+        <p><strong>Sarathi</strong> is an independent open-source project by Siddharth Patel, developed during an internship at STMicroelectronics. It is not an STMicroelectronics product and carries no endorsement from them.</p>
+        <p style="margin-top:14px">Released under AGPL-3.0 so anything built on it stays open. Model weights and datasets carry their own separate terms, listed in the repository with generated attribution.</p>
+      </footer>
+    </main>
+  </div>
+</div>
+</body>
+</html>
