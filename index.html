@@ -60,22 +60,18 @@ h1 .deva{color:var(--dim);font-weight:400;letter-spacing:0}
 .btn:hover{transform:translateY(-2px)}
 .btn.primary{background:var(--amber);color:#0C1012}
 .btn.ghost{border:1px solid var(--rule);color:var(--paper);background:var(--panel)}
-.hero-figure{justify-self:center;width:100%;max-width:430px}
+.hero-figure{justify-self:center;width:100%;max-width:310px}
 .phone{
   border:11px solid #1E262A;border-radius:38px;overflow:hidden;background:#000;
   box-shadow:0 40px 90px rgba(0,0,0,.62), 0 0 0 1px rgba(255,255,255,.045);
   position:relative
 }
-.phone img{display:block;width:100%}
-.phone .say{
-  background:#0C1012;padding:15px 16px 17px;border-top:1px solid var(--rule)
-}
-.phone .say b{display:block;font-size:16.5px;line-height:1.35}
-.phone .say span{display:block;margin-top:7px;font-size:11.5px;color:var(--dim)}
+.phone img{display:block;width:100%;height:auto}
 .figcap{margin:14px 2px 0;font-size:13px;color:var(--dim);line-height:1.5;max-width:none}
 
 /* --------------------------------------------------- hero decision card -- */
 .decide{
+  max-width:600px;
   background:linear-gradient(180deg,#1B2429,#131A1E);
   border:1px solid #2C383E;border-radius:18px;overflow:hidden;
   box-shadow:0 34px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.04)
@@ -110,6 +106,11 @@ h1 .deva{color:var(--dim);font-weight:400;letter-spacing:0}
 .dsaylab{display:block;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
   color:var(--dim);margin-bottom:7px}
 .dsay b{font-size:21px;font-weight:640;letter-spacing:-.02em;line-height:1.3}
+
+/* ------------------------------------------------------------- in field -- */
+.field-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:34px;align-items:start}
+.field-grid figure{margin:0}
+@media(max-width:860px){ .field-grid{grid-template-columns:1fr;gap:40px;max-width:330px} }
 
 /* ------------------------------------------------------------ sections -- */
 section{padding:76px 0;border-top:1px solid var(--rule)}
@@ -241,57 +242,21 @@ footer p{max-width:74ch}
   </div>
 
   <figure class="hero-figure" style="margin:0">
-    <!-- The app's decision, not a picture of a room.
-         Drawing a scene invites comparison with a photograph and loses; the
-         interesting thing here was never the image anyway - it is which of
-         four true detections got spoken. -->
-    <div class="decide">
-      <div class="dhead">
-        <span class="mono">one frame · 26 ms · sarathi26-320</span>
-        <span class="mono dlegend">bar = urgency</span>
-      </div>
-
-      <div class="drow spoken">
-        <span class="chip crit">critical</span>
-        <span class="dname">open manhole</span>
-        <span class="ddist mono">4 ft</span>
-        <span class="dbar"><i style="width:94%"></i></span>
-        <span class="dverdict said">spoken</span>
-      </div>
-
-      <div class="drow">
-        <span class="chip crit">critical</span>
-        <span class="dname">stairs down</span>
-        <span class="ddist mono">11 ft</span>
-        <span class="dbar"><i style="width:61%"></i></span>
-        <span class="dverdict">held</span>
-      </div>
-
-      <div class="drow">
-        <span class="chip high">high</span>
-        <span class="dname">person</span>
-        <span class="ddist mono">21 ft</span>
-        <span class="dbar"><i style="width:15%"></i></span>
-        <span class="dverdict">6 ft off the line</span>
-      </div>
-
-      <div class="drow">
-        <span class="chip low">low</span>
-        <span class="dname">bench</span>
-        <span class="ddist mono">7 ft</span>
-        <span class="dbar"><i style="width:8%"></i></span>
-        <span class="dverdict">context only</span>
-      </div>
-
-      <div class="dsay">
-        <span class="dsaylab mono">says</span>
-        <b>&ldquo;open manhole ahead&rdquo;</b>
-      </div>
+    <!-- A real frame off a real phone, not a drawing and not a mock-up. Every
+         number visible in it - 6 ft, 7 ft, 0.89, 4.3 Hz, thermal 0.78 - is
+         what the app put on screen at 10:15 that morning. -->
+    <div class="phone">
+      <img src="app-detecting.jpg" width="720" height="1600" decoding="async"
+           alt="Sarathi running on a phone. Two boxes are drawn over an office
+                walkway: a person labelled 6 feet and a chair labelled 7 feet.
+                Below, the status line reads 2 detected, peak score 0.89, and
+                the quiet line explains that the chair was recently said.">
     </div>
-    <figcaption class="figcap">Four true detections in one frame. It speaks
-      once &mdash; the nearest critical thing actually in the walking line
-      &mdash; and stays quiet about the other three.</figcaption>
+    <figcaption class="figcap">Running on a Pixel 8a. Two things found, both
+      labelled with a distance in feet &mdash; and the line underneath says why
+      it is <em>not</em> speaking: it already mentioned the chair.</figcaption>
   </figure>
+
 </header>
 </div>
 
@@ -306,21 +271,59 @@ footer p{max-width:74ch}
     too much. <strong>Restraint is the product</strong>, and every architectural
     decision follows from it.</p>
 
-  <div class="ledger">
-    <h4>One recorded scene · what it said, and what it chose not to</h4>
-    <div class="row"><span class="tag said">Spoke</span>
-      <span><span class="what">“open manhole ahead”</span>
-      <span class="why">Critical, in the walking corridor at 1.5 m. Interrupts, with an earcon first.</span></span></div>
-    <div class="row"><span class="tag said">Spoke</span>
-      <span><span class="what">“chair ahead, two metres”</span>
-      <span class="why">Score 0.76, against an announcement floor of 0.55.</span></span></div>
-    <div class="row"><span class="tag quiet">Silent</span>
-      <span><span class="what">person · 3.4 m · 55° to the side</span>
-      <span class="why">2.5 m off the walking line. Not in the way. Score 0.15.</span></span></div>
-    <div class="row"><span class="tag quiet">Silent</span>
-      <span><span class="what">cup · 1 m · dead ahead</span>
-      <span class="why">Low hazard. Context — answered on request, never unprompted.</span></span></div>
-  </div>
+  <!-- The photograph in the hero is the evidence that it works. This is the
+       rule that produced it, on a composed scene chosen to contain all four
+       outcomes at once - a real frame rarely obliges. Labelled as such below,
+       because an invented number presented as a measurement is exactly the
+       failure this report is about. -->
+    <div class="decide">
+    <div class="dhead">
+      <span class="mono">one frame · 26 ms · sarathi26-320</span>
+      <span class="mono dlegend">bar = urgency</span>
+    </div>
+
+    <div class="drow spoken">
+      <span class="chip crit">critical</span>
+      <span class="dname">open manhole</span>
+      <span class="ddist mono">4 ft</span>
+      <span class="dbar"><i style="width:94%"></i></span>
+      <span class="dverdict said">spoken</span>
+    </div>
+
+    <div class="drow">
+      <span class="chip crit">critical</span>
+      <span class="dname">stairs down</span>
+      <span class="ddist mono">11 ft</span>
+      <span class="dbar"><i style="width:61%"></i></span>
+      <span class="dverdict">held</span>
+    </div>
+
+    <div class="drow">
+      <span class="chip high">high</span>
+      <span class="dname">person</span>
+      <span class="ddist mono">21 ft</span>
+      <span class="dbar"><i style="width:15%"></i></span>
+      <span class="dverdict">6 ft off the line</span>
+    </div>
+
+    <div class="drow">
+      <span class="chip low">low</span>
+      <span class="dname">bench</span>
+      <span class="ddist mono">7 ft</span>
+      <span class="dbar"><i style="width:8%"></i></span>
+      <span class="dverdict">context only</span>
+    </div>
+
+    <div class="dsay">
+      <span class="dsaylab mono">says</span>
+      <b>&ldquo;open manhole ahead&rdquo;</b>
+    </div>
+    </div>
+
+  <p class="figcap" style="margin:14px 2px 0">A worked example, not a capture:
+    a scene built to contain all four outcomes at once. Every measured number in
+    this report comes from the phone &mdash; this one diagram does not, and says
+    so.</p>
 
   <h3>Two consequences follow directly</h3>
   <p><strong>Ranking is by metres to the side of the walking line, not by
@@ -339,6 +342,50 @@ footer p{max-width:74ch}
     model that is wrong is <em>fluent</em>, and there is no way to catch it by
     ear. The two live on opposite sides of a wall.</p>
   </div>
+</section>
+</div>
+
+<!-- ========================================================== IN FIELD -- -->
+<div class="wrap">
+<section id="field" style="padding-top:0">
+  <h3>The same build, walking an office floor</h3>
+  <p class="sub" style="margin-bottom:26px">Fourteen minutes on one office
+    floor, in the order they happened. Nothing staged &mdash; and the middle one
+    is a failure.</p>
+
+  <div class="field-grid">
+    <figure>
+      <div class="phone"><img src="app-hallway.jpg" width="720" height="1600"
+        loading="lazy" decoding="async"
+        alt="The app in a long office hallway between desk partitions, with the
+             description reading a long hallway with low walls on both sides."></div>
+      <figcaption class="figcap"><strong>10:15 &middot; stays quiet when quiet is
+        right.</strong> An open hallway with nothing in the way: no detections,
+        no speech, 77% of frames skipped by the motion gate.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><img src="app-stairs.jpg" width="720" height="1600"
+        loading="lazy" decoding="async"
+        alt="The app pointed at a staircase. The overlay reads nothing
+             detected, though the scene description mentions a staircase."></div>
+      <figcaption class="figcap"><strong>10:22 &middot; and misses the most
+        important thing in the building.</strong> <em>Nothing detected</em> on a
+        staircase &mdash; COCO has no class for stairs, so the detector cannot
+        see the single most dangerous feature on the route. Only the scene
+        description caught it, and that runs on request, not continuously.</figcaption>
+    </figure>
+
+    <figure>
+      <div class="phone"><img src="app-doorway.jpg" width="720" height="1600"
+        loading="lazy" decoding="async"
+        alt="The app showing a corridor ending in a glass doorway, with a
+             planter detected at 21 feet."></div>
+      <figcaption class="figcap"><strong>10:29 &middot; finds the one thing worth
+        naming.</strong> A planter at 21 ft, and a description of the doorway
+        behind it. Peak score 0.63, running at 1.9&nbsp;Hz because the phone had
+        gone heat-limited.</figcaption>
+    </figure>
 </section>
 </div>
 
