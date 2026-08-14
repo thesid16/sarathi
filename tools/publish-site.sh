@@ -36,6 +36,8 @@ trap cleanup EXIT
 
 echo "Staging the site..."
 cp docs/assets/report.html "$STAGE/index.html"
+cp docs/assets/app-detecting.jpg docs/assets/app-doorway.jpg \
+   docs/assets/app-stairs.jpg docs/assets/app-hallway.jpg "$STAGE/"
 mkdir -p "$STAGE/demo"
 cp web/index.html web/sarathi.js "$STAGE/demo/"
 cp -r web/model "$STAGE/demo/"
